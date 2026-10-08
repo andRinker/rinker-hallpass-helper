@@ -1,0 +1,52 @@
+{
+  "manifest_version": 3,
+  "name": "HallPass Helper",
+  "version": "0.2.0",
+  "description": "Fewer clicks for teachers using GoGuardian Hall Pass. Not made by or affiliated with GoGuardian.",
+  "permissions": [
+    "storage",
+    "sidePanel",
+    "alarms",
+    "notifications"
+  ],
+  "host_permissions": [
+    "https://hallpass.goguardian.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "side_panel": {
+    "default_path": "sidepanel/sidepanel.html"
+  },
+  "options_page": "options/options.html",
+  "action": {
+    "default_title": "HallPass Helper",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://hallpass.goguardian.com/*"
+      ],
+      "js": [
+        "content/core.js",
+        "content/describe.js",
+        "content/recorder.js",
+        "content/replay.js",
+        "content/outline.js",
+        "content/hallpass.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}

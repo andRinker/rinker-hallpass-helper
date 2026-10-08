@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>HallPass Helper Settings</title>
+    <link rel="stylesheet" href="../ui.css" />
+    <link rel="stylesheet" href="options.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>HallPass Helper settings</h1>
+        <p class="muted">Set these once. Everything stays in this browser; nothing is sent anywhere.</p>
+      </header>
+
+      <section class="card">
+        <h2>You</h2>
+        <p class="hint">Type these exactly as HallPass shows them, so they can be filled in for you.</p>
+        <label for="school">School</label>
+        <input id="school" type="text" placeholder="Middle School South" />
+        <label for="teacherName">Your name</label>
+        <input id="teacherName" type="text" placeholder="Ms. Rivera" />
+        <label for="origin">Your room (where passes start)</label>
+        <input id="origin" type="text" placeholder="Room 112" />
+        <label for="destinations">Destinations you use, most common first</label>
+        <textarea id="destinations" rows="4" placeholder="6th Grade Bathroom&#10;Nurse&#10;Library"></textarea>
+        <label for="overdueMinutes">Warn me when a pass has been out this many minutes</label>
+        <input id="overdueMinutes" type="number" min="1" max="120" step="1" class="short" />
+      </section>
+
+      <section class="card">
+        <h2>My students</h2>
+        <p class="hint">
+          One student per line, "First Last" or "Last, First". Put a line like "Period 3" above each class so the
+          side panel shows the right kids each period.
+        </p>
+        <textarea id="roster" rows="12" placeholder="Period 1&#10;Jordan Miller&#10;Martinez, Jordan&#10;&#10;Period 2&#10;Ava Lee"></textarea>
+        <div id="rosterPreview" class="preview"></div>
+      </section>
+
+      <section class="card">
+        <h2>Bell schedules</h2>
+        <p class="hint">
+          One period per line, like "Period 1 8:00-8:50". Times without am/pm from 1:00 to 6:59 count as afternoon.
+        </p>
+        <div id="schedules"></div>
+        <button id="addSchedule" type="button">+ Add a schedule</button>
+
+        <h3>Which schedule each day</h3>
+        <p class="hint">You can switch today's schedule any time from the side panel.</p>
+        <div id="weekdays" class="weekdays"></div>
+
+        <label class="check">
+          <input id="endAtBell" type="checkbox" />
+          End my open passes when the bell rings
+        </label>
+        <p class="hint">
+          You'll get a notice listing anyone who wasn't back yet. HallPass has to be open in Chrome for this to work.
+        </p>
+      </section>
+
+      <footer>
+        <div id="saveErrors" class="errors"></div>
+        <button id="save" class="primary" type="button">Save</button>
+        <span id="saved" class="saved" hidden>Saved</span>
+      </footer>
+    </main>
+
+    <template id="scheduleTemplate">
+      <div class="schedule">
+        <div class="schedule-head">
+          <input class="schedule-name" type="text" placeholder="Regular" aria-label="Schedule name" />
+          <button class="remove link" type="button">Remove</button>
+        </div>
+        <textarea class="schedule-periods" rows="8" aria-label="Periods"></textarea>
+        <div class="errors"></div>
+      </div>
+    </template>
+
+    <script type="module" src="options.js"></script>
+  </body>
+</html>
