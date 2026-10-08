@@ -1,4 +1,5 @@
-import { HALLPASS_URL, loadSettings } from "./lib/storage.js";
+import { loadSettings } from "./lib/storage.js";
+import { goGuardianTab, taughtHost } from "./lib/tabs.js";
 import { nextBell, scheduleForDate } from "./lib/bells.js";
 
 const BELL_KEYS = ["schedules", "weekdaySchedule", "todayOverride"];
@@ -65,9 +66,9 @@ async function onOverdue(id) {
 }
 
 async function onBell() {
-  const { endAtBell, outPasses } = await loadSettings();
+  const { endAtBell, outPasses, macros } = await loadSettings();
   if (!endAtBell || !outPasses.length) return;
-  const [tab] = await chrome.tabs.query({ url: `${HALLPASS_URL}*` });
+  const tab = await goGuardianTab(taughtHost(macros.end));
   if (!tab) {
     notify("Bell rang", "HallPass isn't open, so no passes were ended.");
     return;

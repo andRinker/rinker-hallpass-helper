@@ -1,4 +1,4 @@
-import { HALLPASS_URL } from "../lib/storage.js";
+import { goGuardianTab } from "../lib/tabs.js";
 
 export const $ = (id) => document.getElementById(id);
 
@@ -15,8 +15,9 @@ export function h(tag, props = {}, ...children) {
   return node;
 }
 
-export async function hallpassTab() {
-  const [tab] = await chrome.tabs.query({ url: `${HALLPASS_URL}*` });
+// `host` is the site the steps were taught on (HallPass or GoGuardian's home screen), when it matters.
+export async function hallpassTab(host) {
+  const tab = await goGuardianTab(host);
   if (!tab) return { state: "closed" };
   const pong = await chrome.tabs.sendMessage(tab.id, { type: "ping" }).catch(() => null);
   return { state: pong?.ok ? "ready" : "stale", tab };
@@ -24,8 +25,8 @@ export async function hallpassTab() {
 
 // Brings the HallPass tab forward and sends it a message. Background tabs run timers slowly,
 // so anything that clicks through HallPass should happen with the tab showing.
-export async function askHallPass(message) {
-  const { state, tab } = await hallpassTab();
+export async function askHallPass(message, host) {
+  const { state, tab } = await hallpassTab(host);
   if (state !== "ready") {
     toast(state === "closed" ? "Open HallPass first." : "Reload your HallPass tab first.");
     return null;

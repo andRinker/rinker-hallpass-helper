@@ -1,5 +1,5 @@
 // End-to-end check: loads the real extension in Chromium against e2e/mock-hallpass.html served at
-// hallpass.goguardian.com, teaches it to make and end a pass, then uses it like a teacher would.
+// hallpass.goguardian.com (and at teacher.goguardian.com, standing in for GoGuardian's home screen), teaches it to make and end a pass, then uses it like a teacher would.
 // Run with: npm run test:e2e   (needs the `playwright` package and its Chromium)
 import { chromium } from "playwright";
 import { readFileSync } from "node:fs";
@@ -40,7 +40,7 @@ const watch = (page, name) => {
 };
 
 try {
-  await ctx.route("https://hallpass.goguardian.com/**", (route) =>
+  await ctx.route("https://*.goguardian.com/**", (route) =>
     route.fulfill({ contentType: "text/html", body: mockHtml }),
   );
   const ours = (w) => w.url().endsWith("/background.js");
@@ -207,6 +207,48 @@ try {
   const notes = await sw.evaluate(() => self.__notes);
   const bellNote = notes.find((n) => n.title === "Ended at the bell");
   check(!!bellNote && /Ava L\./.test(bellNote.message) && /Jordan Mo\./.test(bellNote.message), "bell: notice lists who was out", JSON.stringify(notes));
+
+  // --- Home screen: a second GoGuardian site open alongside HallPass ---
+  const home = await ctx.newPage();
+  watch(home, "home");
+  await home.goto("https://teacher.goguardian.com/");
+  await home.bringToFront();
+  await panel.click("#outlineButton");
+  await until(async () => /Site: teacher\.goguardian\.com/.test(await panel.inputValue("#outlineText")), "outline of the home screen");
+  check(true, "home screen: the helper runs there and outlines it");
+
+  // Steps taught on HallPass still go to the HallPass tab, even with the home screen in front.
+  await clearToast();
+  await panel.click('#students button:text("Ava L.")');
+  await toast(/click "Create Pass"/);
+  const filled = await hp.evaluate(() => window.__mock.form?.student?.last);
+  const homeFilled = await home.evaluate(() => window.__mock.form?.student?.last);
+  check(filled === "Lee" && !homeFilled, "home screen: HallPass-taught steps run in the HallPass tab", `${filled} / ${homeFilled}`);
+  await hp.click("button.cancel");
+
+  // Teaching on the home screen remembers it, and passes go there from then on.
+  await home.bringToFront();
+  await panel.getByRole("button", { name: "Re-teach", exact: true }).click();
+  await panel.waitForSelector('#teach[data-mode="recording"]');
+  await home.click("#newPass");
+  await home.click('[role=combobox][aria-label="Site"]');
+  await home.click('[role=option]:text("Middle School South")');
+  await home.locator(".student-search").pressSequentially("jor", { delay: 60 });
+  await home.click('.results [role=option]:has-text("Jordan Miller")');
+  await home.selectOption('select[aria-label="Teacher"]', { label: "Ms. Rivera" });
+  await home.click('.chip:text("6th Grade Bathroom")');
+  await home.click('button:text("Create Pass")');
+  await until(async () => /8 steps/.test(await panelText("#teach")), "8 steps recorded on the home screen");
+  await panel.getByRole("button", { name: "Done" }).click();
+  await panel.getByRole("button", { name: "Save" }).click();
+  const homeMacros = (await storage("macros")).macros;
+  check(homeMacros.create?.host === "teacher.goguardian.com", "home screen: taught steps remember the site", homeMacros.create?.host);
+  await hp.bringToFront();
+  await clearToast();
+  await panel.click('#students button:text("Jordan Mi.")');
+  await toast(/click "Create Pass"/);
+  const homeForm = await home.evaluate(() => window.__mock.form?.student?.last);
+  check(homeForm === "Miller", "home screen: one-tap pass fills in on the home screen", homeForm);
 
   check(errors.length === 0, "no console errors", errors.join("\n     "));
 } catch (err) {

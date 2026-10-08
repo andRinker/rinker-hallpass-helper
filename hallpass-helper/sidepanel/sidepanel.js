@@ -1,6 +1,7 @@
 import { HALLPASS_URL, loadSettings, saveSettings } from "../lib/storage.js";
 import { currentPeriod, dateKey, formatClock, nextBell, scheduleForDate } from "../lib/bells.js";
 import { findStudents, periodKey, shortLabels } from "../lib/names.js";
+import { HALLPASS_HOST, hostOf, taughtHost } from "../lib/tabs.js";
 import { $, askHallPass, hallpassTab, stuckMessage, toast } from "./shared.js";
 import { initTeach, renderTeach } from "./teach.js";
 import { initWhosOut, renderWhosOut } from "./whos-out.js";
@@ -101,9 +102,9 @@ function renderStudents() {
 }
 
 async function renderHallPass() {
-  const { state } = await hallpassTab();
+  const { state, tab } = await hallpassTab(taughtHost(settings?.macros.create));
   const messages = {
-    ready: "HallPass is open.",
+    ready: hostOf(tab?.url) === HALLPASS_HOST ? "HallPass is open." : "GoGuardian is open.",
     stale: "Reload your HallPass tab so the helper can see it.",
     closed: "HallPass isn't open.",
   };
@@ -118,7 +119,7 @@ async function quickPass(student) {
     toast('Teach the helper first: click "Teach: make a pass" above.');
     return;
   }
-  const result = await askHallPass({ type: "start-pass", student, destination });
+  const result = await askHallPass({ type: "start-pass", student, destination }, taughtHost(settings.macros.create));
   if (!result) return;
   if (result.waitingForFinal) toast(`Check it in HallPass, then click "${result.finalLabel}".`);
   else if (result.ok) toast("Filled in. Finish the pass in HallPass.");
