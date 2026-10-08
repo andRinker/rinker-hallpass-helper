@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>HallPass Helper</title>
+    <link rel="stylesheet" href="../ui.css" />
+    <link rel="stylesheet" href="sidepanel.css" />
+  </head>
+  <body>
+    <header>
+      <div class="row">
+        <select id="schedule" aria-label="Today's bell schedule"></select>
+        <button id="settings" class="link" type="button">Settings</button>
+      </div>
+      <div id="clock" class="clock"></div>
+    </header>
+
+    <section id="hallpass" class="status">
+      <span class="dot"></span>
+      <span class="text"></span>
+      <button id="openHallpass" class="link" type="button"></button>
+    </section>
+
+    <section>
+      <h2 id="studentsTitle">My students</h2>
+      <div id="destinations" class="pills" role="radiogroup" aria-label="Destination"></div>
+      <input id="search" type="search" placeholder="Find any of your students" />
+      <div id="students" class="chips"></div>
+      <p id="studentsEmpty" class="hint" hidden></p>
+    </section>
+
+    <section>
+      <h2>Who's out</h2>
+      <p class="hint">
+        Your active passes, timers, and a one-click Back button will show here once the HallPass hookup is built.
+      </p>
+    </section>
+
+    <div id="toast" class="toast" role="status" hidden></div>
+
+    <script type="module" src="sidepanel.js"></script>
+  </body>
+</html>

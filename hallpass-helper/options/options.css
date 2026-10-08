@@ -1,0 +1,103 @@
+main {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 24px 16px 48px;
+  display: grid;
+  gap: 16px;
+}
+
+header p {
+  margin: 6px 0 0;
+}
+
+section h2 {
+  font-size: 17px;
+}
+
+section h3 {
+  font-size: 14px;
+  margin-top: 20px;
+}
+
+section > .hint {
+  margin: 4px 0 8px;
+}
+
+.preview {
+  margin-top: 10px;
+  font-size: 13px;
+}
+
+.preview .group {
+  margin-top: 6px;
+}
+
+.preview .names {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.preview .names span {
+  background: var(--chip);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+
+.schedule {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  margin-bottom: 10px;
+}
+
+.schedule-head {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.schedule-name {
+  font-weight: 600;
+}
+
+.weekdays {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 8px;
+}
+
+.weekdays label {
+  margin: 0;
+  font-weight: 500;
+  font-size: 13px;
+}
+
+label.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+footer {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  background: var(--bg);
+}
+
+footer .errors {
+  flex-basis: 100%;
+}
+
+.saved {
+  color: var(--ok);
+  font-weight: 600;
+}
