@@ -19,16 +19,19 @@ The helper doesn't come knowing HallPass's screens. **You teach it once**: make 
 
 ## At school: setting it up
 
-1. **At home:** download this `hallpass-helper` folder (on GitHub: Code → Download ZIP, then unzip it). Email or Drive it to your school account. There's no student data in it.
-2. **At school:** go to `chrome://extensions`, turn on **Developer mode** (top right), click **Load unpacked**, and choose the `hallpass-helper` folder.
-3. Pin the extension, click its icon to open the side panel, and click **Settings**. Fill in:
+1. **Get the files:** on the repo's GitHub page, click **Code → Download ZIP**. You can do this at school, or at home and then email or Drive the .zip to your school account. There's no student data in it.
+2. **Unzip it:** right-click the .zip and choose **Extract All**. Chrome can't load an extension from inside a .zip.
+3. **Load it:** go to `chrome://extensions`, turn on **Developer mode** (top right), and click **Load unpacked**. Open the extracted folder and keep going until you reach the folder named **`hallpass-helper`**: the one with `manifest.json` directly inside it. Choose that folder.
+   - On Windows the path usually looks like `Downloads\rinker-hallpass-helper-master\rinker-hallpass-helper-master\hallpass-helper`.
+   - If Chrome says **"Manifest file is missing or unreadable"**, you chose a folder above `hallpass-helper`. Go one level deeper.
+4. Pin the extension, click its icon to open the side panel, and click **Settings**. Fill in:
    - your school, name, room and destinations, exactly as HallPass shows them
    - your class lists (with a "Period 3" line above each class)
    - your bell schedules
-4. Open HallPass. In the side panel, click **Teach: make a pass**, make one real pass all the way through Create, then click **Done**. Check the guesses and **Save**.
-5. Click **Teach: end a pass**, end that same pass in HallPass, then **Done** → **Save**.
-6. Tap a student and watch it fill in. Click **Create** yourself.
-7. Stuck somewhere? Click **Copy HallPass page outline for Claude**, check the preview, and email it to yourself to paste into the chat.
+5. Open HallPass. In the side panel, click **Teach: make a pass**, make one real pass all the way through Create, then click **Done**. Check the guesses and **Save**.
+6. Click **Teach: end a pass**, end that same pass in HallPass, then **Done** → **Save**.
+7. Tap a student and watch it fill in. Click **Create** yourself.
+8. Stuck somewhere? Click **Copy HallPass page outline for Claude**, check the preview, and email it to yourself to paste into the chat.
 
 Updating later: replace the folder with the new download, then click the reload arrow on the extension in `chrome://extensions`.
 
