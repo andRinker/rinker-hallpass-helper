@@ -133,6 +133,7 @@ async function save() {
     teacherName: $("teacherName").value.trim(),
     origin: $("origin").value.trim(),
     destinations: lines($("destinations").value),
+    overdueMinutes: Math.min(120, Math.max(1, Math.round(Number($("overdueMinutes").value) || 10))),
     rosterText,
     roster: parseRoster(rosterText),
     schedules,
@@ -155,6 +156,7 @@ async function load() {
   $("teacherName").value = s.teacherName;
   $("origin").value = s.origin;
   $("destinations").value = s.destinations.join("\n");
+  $("overdueMinutes").value = s.overdueMinutes;
   $("roster").value = s.rosterText;
   $("endAtBell").checked = s.endAtBell;
   s.schedules.forEach((schedule) => addScheduleCard(schedule));

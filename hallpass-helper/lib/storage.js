@@ -13,6 +13,11 @@ export const DEFAULTS = {
   weekdaySchedule: {},
   todayOverride: null,
   endAtBell: false,
+  overdueMinutes: 10,
+  // Taught steps: { create: { steps, taughtAt }, end: { steps, taughtAt } }
+  macros: {},
+  // Passes made through the helper that haven't ended: [{ id, student, label, destination, startedAt }]
+  outPasses: [],
 };
 
 export function loadSettings() {

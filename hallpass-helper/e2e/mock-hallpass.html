@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Mock Hall Pass</title>
+    <!--
+      A stand-in for HallPass used by e2e/run.mjs. It's made awkward on purpose:
+      a clickable div with no button markup, a dropdown that opens on mousedown, a student search
+      that only matches first OR last names and answers after a delay, a native select, clickable
+      chips, cards that re-render, and an "are you sure" dialog. Names are made up.
+    -->
+    <style>
+      body { font: 14px system-ui, sans-serif; margin: 0; padding: 16px; }
+      .new-pass { cursor: pointer; display: inline-block; background: #36c; color: #fff; padding: 8px 12px; border-radius: 6px; }
+      .card { cursor: pointer; border: 1px solid #bbb; border-radius: 6px; padding: 8px; margin: 6px 0; max-width: 420px; }
+      .card .end { display: none; margin-top: 6px; }
+      .card.expanded .end { display: inline-block; }
+      [role="dialog"] { position: fixed; top: 30px; left: 30px; right: 30px; background: #fff; border: 1px solid #333; padding: 16px; }
+      .site-picker { border: 1px solid #999; padding: 6px; width: 240px; cursor: pointer; }
+      [role="listbox"] { border: 1px solid #999; margin: 0; padding: 0; list-style: none; width: 260px; }
+      [role="option"] { cursor: pointer; padding: 4px 6px; }
+      .chip { cursor: pointer; display: inline-block; border: 1px solid #999; border-radius: 12px; padding: 4px 10px; margin: 2px; }
+      .chip.on { background: #36c; color: #fff; }
+      .field { margin: 10px 0; }
+      .error { color: #b00; }
+    </style>
+  </head>
+  <body>
+    <header><h1>Hall Pass</h1></header>
+    <main>
+      <div class="new-pass" id="newPass">New Pass</div>
+      <h2>Active Passes</h2>
+      <div id="active"></div>
+    </main>
+    <div id="dialogs"></div>
+
+    <script>
+      const SCHOOL = [
+        ["Jordan", "Miller", 7], ["Jordan", "Martinez", 6], ["Jordan", "Moore", 8], ["Ava", "Lee", 6],
+        ["Sam", "Cho", 7], ["Sam", "Cho", 8], ["Priya", "Shah", 6], ["Leo", "Kim", 7], ["Hunter", "Hall", 8],
+      ].map(([first, last, grade], id) => ({ id, first, last, grade }));
+      const SITES = ["High School", "Middle School North", "Middle School South"];
+      const DESTS = ["6th Grade Bathroom", "Nurse", "Library"];
+
+      const state = (window.__mock = { passes: [], form: null, nextId: 1 });
+      const $ = (sel, root = document) => root.querySelector(sel);
+
+      function renderActive() {
+        $("#active").innerHTML = "";
+        for (const pass of state.passes) {
+          const card = document.createElement("div");
+          card.className = "card" + (pass.expanded ? " expanded" : "");
+          card.innerHTML = `<div class="name"></div><div class="dest"></div><div class="time">0 min</div>
+            <button class="end" type="button">End Pass</button>`;
+          $(".name", card).textContent = `${pass.student.first} ${pass.student.last}`;
+          $(".dest", card).textContent = pass.dest;
+          card.addEventListener("click", () => {
+            pass.expanded = true;
+            renderActive();
+          });
+          $(".end", card).addEventListener("click", (e) => {
+            e.stopPropagation();
+            confirmEnd(pass);
+          });
+          $("#active").append(card);
+        }
+      }
+
+      function confirmEnd(pass) {
+        $("#dialogs").innerHTML = `<div role="dialog" aria-label="End pass?"><p>End this pass?</p>
+          <button type="button" class="yes">Yes, end it</button> <button type="button" class="no">Cancel</button></div>`;
+        $(".yes").addEventListener("click", () => {
+          state.passes = state.passes.filter((p) => p !== pass);
+          $("#dialogs").innerHTML = "";
+          setTimeout(renderActive, 100);
+        });
+        $(".no").addEventListener("click", () => ($("#dialogs").innerHTML = ""));
+      }
+
+      function openNewPass() {
+        state.form = { site: null, student: null, teacher: "", dest: null, results: [] };
+        $("#dialogs").innerHTML = `<div role="dialog" aria-label="Create Pass">
+          <h2>Create Pass</h2>
+          <div class="field"><div role="combobox" aria-label="Site" tabindex="0" class="site-picker">Choose a site</div>
+            <ul role="listbox" class="sites" hidden></ul></div>
+          <div class="field"><input class="student-search" placeholder="Search students" autocomplete="off" />
+            <div class="picked"></div><ul role="listbox" class="results"></ul></div>
+          <div class="field"><select aria-label="Teacher"><option value="">Choose…</option>
+            <option value="r">Ms. Rivera</option><option value="o">Mr. Okafor</option></select></div>
+          <div class="field dests"></div>
+          <div class="error"></div>
+          <button type="button" class="create">Create Pass</button> <button type="button" class="cancel">Cancel</button>
+        </div>`;
+        const dialog = $("[role=dialog]");
+
+        // Opens on mousedown, like many custom dropdowns.
+        $(".site-picker", dialog).addEventListener("mousedown", () => {
+          const list = $(".sites", dialog);
+          list.hidden = !list.hidden;
+          list.innerHTML = "";
+          for (const site of SITES) {
+            const li = document.createElement("li");
+            li.setAttribute("role", "option");
+            li.textContent = site;
+            li.addEventListener("click", () => {
+              state.form.site = site;
+              $(".site-picker", dialog).textContent = site;
+              list.hidden = true;
+            });
+            list.append(li);
+          }
+        });
+
+        // Only listens to input events, matches first OR last name by prefix, answers after 400ms.
+        let timer;
+        $(".student-search", dialog).addEventListener("input", (e) => {
+          const q = e.target.value.trim().toLowerCase();
+          clearTimeout(timer);
+          timer = setTimeout(() => {
+            state.form.results = q ? SCHOOL.filter((s) => s.first.toLowerCase().startsWith(q) || s.last.toLowerCase().startsWith(q)) : [];
+            renderResults(dialog);
+          }, 400);
+        });
+
+        $("select", dialog).addEventListener("change", (e) => (state.form.teacher = e.target.value));
+
+        const dests = $(".dests", dialog);
+        for (const dest of DESTS) {
+          const chip = document.createElement("span");
+          chip.className = "chip";
+          chip.textContent = dest;
+          chip.addEventListener("click", () => {
+            state.form.dest = dest;
+            for (const c of dests.children) c.classList.toggle("on", c.textContent === dest);
+          });
+          dests.append(chip);
+        }
+
+        $(".create", dialog).addEventListener("click", () => {
+          const f = state.form;
+          if (!f.site || !f.student || !f.teacher || !f.dest) {
+            $(".error", dialog).textContent = "Fill in every field.";
+            return;
+          }
+          state.passes.push({ id: state.nextId++, student: f.student, dest: f.dest, teacher: f.teacher, site: f.site });
+          state.form = null;
+          $("#dialogs").innerHTML = "";
+          renderActive();
+        });
+        $(".cancel", dialog).addEventListener("click", () => {
+          state.form = null;
+          $("#dialogs").innerHTML = "";
+        });
+      }
+
+      function renderResults(dialog) {
+        const list = $(".results", dialog);
+        list.innerHTML = "";
+        for (const s of state.form.results) {
+          const li = document.createElement("li");
+          li.setAttribute("role", "option");
+          li.innerHTML = `<span></span> <small>Grade ${s.grade}</small>`;
+          li.firstChild.textContent = `${s.first} ${s.last}`;
+          li.addEventListener("click", () => {
+            state.form.student = s;
+            state.form.results = [];
+            $(".picked", dialog).textContent = `Student: ${s.first} ${s.last}`;
+            renderResults(dialog);
+          });
+          list.append(li);
+        }
+      }
+
+      $("#newPass").addEventListener("click", openNewPass);
+      renderActive();
+    </script>
+  </body>
+</html>

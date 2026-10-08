@@ -2,53 +2,71 @@
 
 A Chrome extension that makes GoGuardian Hall Pass less painful for teachers. It isn't made by or affiliated with GoGuardian.
 
-All settings and student names stay in your own browser (`chrome.storage.local`). Nothing is sent anywhere.
+All settings, student names, and taught steps stay in your own browser (`chrome.storage.local`). Nothing is sent anywhere.
 
-## What works today
+## How it works
 
-- **Settings page:** enter your school, name, room, favorite destinations, class lists, and bell schedules once.
-  - Paste class lists as "First Last" or "Last, First", with a "Period 3" line above each class.
-  - Bell schedules take lines like `Period 1 8:00-8:50`. You can have several, such as Regular, Early release, or A/B days, and choose which one runs each weekday.
-- **Side panel:** click the toolbar icon to open it. It stays beside any tab.
-  - Today's schedule, the current period, and a countdown to the next bell. You can switch today's schedule here.
-  - The current period's students as one-tap buttons. Kids who share a first name are told apart ("Jordan Mi." / "Jordan Ma.").
-  - A search box that finds any student on your roster.
-  - Whether HallPass is open in Chrome, with a button to open it as a pinned tab.
-- **Bell alarm:** the extension sets an alarm for each bell. When "End my open passes when the bell rings" is on, it tries to end your passes at each bell and sends you a notice.
+The helper doesn't come knowing HallPass's screens. **You teach it once**: make one pass while it watches, and it repeats those steps for any student you tap.
 
-## Not hooked up yet
+- **Teach it once.** In the side panel, click **Teach: make a pass**, then make one pass in HallPass the way you always do. The helper shows the steps it saw and guesses which one is the student, which is the destination, and which is the final Create button. You fix any wrong guesses and save. The teaching student's name is swapped for a placeholder before anything is saved.
+- **One-tap passes.** Tap a student (this period's class shows first) and pick a destination. The helper clicks through HallPass for you:
+  - It **stops at the Create button** and outlines it, so you always make the last click.
+  - If the student search doesn't take full names, it retries with just the last name, then just the first.
+  - If two students have the same name, it highlights both and lets you pick.
+- **Who's Out.** Passes you make through the helper are listed with live timers. They turn red after the number of minutes you set, and you get a desktop notice. **Back** ends the pass in HallPass once you've also taught **Teach: end a pass**. **×** just clears the row.
+- **End at the bell.** With your bell schedules entered and "End my open passes when the bell rings" turned on, the helper ends everyone still out at each bell and tells you who it was.
+- **Name-free page outline.** If the helper gets stuck, use **Copy HallPass page outline for Claude**. It produces a text outline of the HallPass screen with student and staff names turned into "Xxxxx". Look it over, then send it to yourself.
 
-Anything that clicks inside HallPass itself still needs screenshots or saved copies of the real HallPass screens to know which buttons to press:
+## At school: setting it up
 
-- filling in the new-pass form
-- one-tap passes
-- the "Who's out" list and its Back buttons
-- actually ending passes at the bell
-- "Send when a spot opens"
+1. **At home:** download this `hallpass-helper` folder (on GitHub: Code → Download ZIP, then unzip it). Email or Drive it to your school account. There's no student data in it.
+2. **At school:** go to `chrome://extensions`, turn on **Developer mode** (top right), click **Load unpacked**, and choose the `hallpass-helper` folder.
+3. Pin the extension, click its icon to open the side panel, and click **Settings**. Fill in:
+   - your school, name, room and destinations, exactly as HallPass shows them
+   - your class lists (with a "Period 3" line above each class)
+   - your bell schedules
+4. Open HallPass. In the side panel, click **Teach: make a pass**, make one real pass all the way through Create, then click **Done**. Check the guesses and **Save**.
+5. Click **Teach: end a pass**, end that same pass in HallPass, then **Done** → **Save**.
+6. Tap a student and watch it fill in. Click **Create** yourself.
+7. Stuck somewhere? Click **Copy HallPass page outline for Claude**, check the preview, and email it to yourself to paste into the chat.
 
-All of that goes in `content/hallpass.js`, in the `adapter` object. For now each of those actions reports "not-wired" and the side panel says so.
+Updating later: replace the folder with the new download, then click the reload arrow on the extension in `chrome://extensions`.
 
-## Install (for teachers)
+## Not built yet
 
-1. Download this folder (`hallpass-helper`).
-2. In Chrome, go to `chrome://extensions` and turn on **Developer mode** (top right).
-3. Click **Load unpacked** and pick the `hallpass-helper` folder.
-4. Pin the extension and click its icon to open the side panel. Click **Settings** to set it up.
+- **"Send when a spot opens"** for passes stuck waiting on bathroom or hallway capacity. That needs a page outline of the waiting screen first.
 
 ## Development
 
-There's no build step: it's plain JavaScript modules. To run the logic tests:
+Plain JavaScript, no build step.
 
 ```sh
 cd hallpass-helper
-npm test
+npm test           # logic tests (Node)
+npm install        # once, for the browser test
+npm run test:e2e   # loads the extension in Chromium against e2e/mock-hallpass.html
 ```
+
+`e2e/run.mjs` serves the mock page at `hallpass.goguardian.com`, then:
+- teaches the helper to make and end a pass
+- runs one-tap passes, including a same-name student
+- clicks Back
+- simulates a bell
+- checks that the outline has no names
+
+Set `E2E_SHOTS=/some/dir` to save screenshots.
 
 | File | What it does |
 |---|---|
 | `lib/bells.js` | Reads bell schedules, finds the current period and the next bell |
-| `lib/names.js` | Reads pasted rosters, makes short labels for students, searches names |
+| `lib/names.js` | Reads pasted rosters, makes short student labels, searches names |
 | `lib/storage.js` | Saved settings and their defaults |
-| `background.js` | Bell alarms and notices |
-| `content/hallpass.js` | Runs inside HallPass; the only file that knows HallPass's page layout |
-| `sidepanel/`, `options/` | The side panel and the settings page |
+| `content/core.js` | Plain-data helpers: guessing step roles, removing names, matching names, the outline's name filter |
+| `content/describe.js` | Describes a clicked element so it can be found again after HallPass redraws |
+| `content/recorder.js` | Teach mode: records clicks, typing and choices |
+| `content/replay.js` | Repeats taught steps for a student, stops at the final button |
+| `content/outline.js` | The name-free page outline |
+| `content/hallpass.js` | Answers the side panel and background inside the HallPass tab |
+| `background.js` | Bell alarms, overdue alarms, notices |
+| `sidepanel/` | Side panel: students, Teach card, Who's Out, outline |
+| `options/` | Settings page |

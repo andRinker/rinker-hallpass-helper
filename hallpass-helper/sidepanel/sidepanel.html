@@ -22,6 +22,8 @@
       <button id="openHallpass" class="link" type="button"></button>
     </section>
 
+    <section id="teach" class="card teach" aria-live="polite"></section>
+
     <section>
       <h2 id="studentsTitle">My students</h2>
       <div id="destinations" class="pills" role="radiogroup" aria-label="Destination"></div>
@@ -31,14 +33,29 @@
     </section>
 
     <section>
-      <h2>Who's out</h2>
-      <p class="hint">
-        Your active passes, timers, and a one-click Back button will show here once the HallPass hookup is built.
-      </p>
+      <h2>Who's out <span id="outCount"></span></h2>
+      <div id="outList" class="out-list"></div>
+      <p id="outEmpty" class="hint">Passes you make with the helper show up here.</p>
+    </section>
+
+    <section class="tools">
+      <button id="outlineButton" class="link" type="button">Copy HallPass page outline for Claude</button>
+      <div id="outlineBox" hidden>
+        <p class="hint">
+          Student and staff names show up as "Xxxxx". Look it over before you send it, then paste it into an email or doc
+          to yourself.
+        </p>
+        <textarea id="outlineText" rows="12" readonly aria-label="Page outline"></textarea>
+        <div class="row">
+          <button id="copyOutline" class="primary" type="button">Copy</button>
+          <button id="closeOutline" type="button">Close</button>
+        </div>
+      </div>
     </section>
 
     <div id="toast" class="toast" role="status" hidden></div>
 
+    <script src="../content/core.js"></script>
     <script type="module" src="sidepanel.js"></script>
   </body>
 </html>

@@ -69,6 +69,7 @@ label {
 
 input[type="text"],
 input[type="search"],
+input[type="number"],
 textarea,
 select {
   width: 100%;
@@ -78,6 +79,10 @@ select {
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 7px 9px;
+}
+
+input.short {
+  width: 6em;
 }
 
 textarea {

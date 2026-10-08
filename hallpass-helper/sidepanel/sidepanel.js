@@ -1,8 +1,10 @@
 import { HALLPASS_URL, loadSettings, saveSettings } from "../lib/storage.js";
 import { currentPeriod, dateKey, formatClock, nextBell, scheduleForDate } from "../lib/bells.js";
 import { findStudents, periodKey, shortLabels } from "../lib/names.js";
+import { $, askHallPass, hallpassTab, stuckMessage, toast } from "./shared.js";
+import { initTeach, renderTeach } from "./teach.js";
+import { initWhosOut, renderWhosOut } from "./whos-out.js";
 
-const $ = (id) => document.getElementById(id);
 const displayPeriod = (name) => (/^\d+$/.test(name) ? `Period ${name}` : name);
 
 let settings;
@@ -16,6 +18,8 @@ async function refresh() {
   renderDestinations();
   renderClock();
   renderStudents();
+  renderTeach();
+  renderWhosOut();
   renderHallPass();
 }
 
@@ -96,13 +100,6 @@ function renderStudents() {
   $("studentsEmpty").hidden = !empty;
 }
 
-async function hallpassTab() {
-  const [tab] = await chrome.tabs.query({ url: `${HALLPASS_URL}*` });
-  if (!tab) return { state: "closed" };
-  const pong = await chrome.tabs.sendMessage(tab.id, { type: "ping" }).catch(() => null);
-  return { state: pong?.ok ? "ready" : "stale", tab };
-}
-
 async function renderHallPass() {
   const { state } = await hallpassTab();
   const messages = {
@@ -117,33 +114,22 @@ async function renderHallPass() {
 }
 
 async function quickPass(student) {
-  const { state, tab } = await hallpassTab();
-  if (state !== "ready") {
-    toast(state === "closed" ? "Open HallPass first." : "Reload your HallPass tab first.");
+  if (!settings.macros.create) {
+    toast('Teach the helper first: click "Teach: make a pass" above.');
     return;
   }
-  const defaults = {
-    school: settings.school,
-    teacherName: settings.teacherName,
-    origin: settings.origin,
-    destination,
-  };
-  const result = await chrome.tabs.sendMessage(tab.id, { type: "start-pass", student, defaults }).catch(() => null);
-  if (result?.ok) {
-    chrome.tabs.update(tab.id, { active: true });
-  } else if (result?.reason === "not-wired") {
-    toast("One-tap passes turn on once the HallPass hookup is built. It needs screenshots of the real screens.");
-  } else {
-    toast("Couldn't start the pass. Check HallPass.");
-  }
+  const result = await askHallPass({ type: "start-pass", student, destination });
+  if (!result) return;
+  if (result.waitingForFinal) toast(`Check it in HallPass, then click "${result.finalLabel}".`);
+  else if (result.ok) toast("Filled in. Finish the pass in HallPass.");
+  else toast(stuckMessage(result));
 }
 
-let toastTimer;
-function toast(message) {
-  $("toast").textContent = message;
-  $("toast").hidden = false;
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => ($("toast").hidden = true), 5000);
+async function showOutline() {
+  const result = await askHallPass({ type: "outline" });
+  if (!result?.ok) return;
+  $("outlineText").value = result.text;
+  $("outlineBox").hidden = false;
 }
 
 $("schedule").addEventListener("change", (e) => {
@@ -156,12 +142,24 @@ $("openHallpass").addEventListener("click", async () => {
   if (state === "stale") chrome.tabs.reload(tab.id);
   else chrome.tabs.create({ url: HALLPASS_URL, pinned: true });
 });
+$("outlineButton").addEventListener("click", showOutline);
+$("closeOutline").addEventListener("click", () => ($("outlineBox").hidden = true));
+$("copyOutline").addEventListener("click", async () => {
+  await navigator.clipboard.writeText($("outlineText").value);
+  toast("Copied. Paste it into an email or doc to yourself, then into your chat with Claude.");
+});
 
 chrome.storage.onChanged.addListener(refresh);
 chrome.tabs.onRemoved.addListener(renderHallPass);
 chrome.tabs.onUpdated.addListener((_id, info) => info.status === "complete" && renderHallPass());
 setInterval(() => {
   renderClock();
+  renderWhosOut();
   renderHallPass();
 }, 15000);
+
+settings = await loadSettings();
+const getSettings = () => settings;
+initWhosOut(getSettings);
+initTeach(getSettings);
 refresh();
