@@ -112,6 +112,7 @@
     const R = (text) => HPH.redact(text, { keep, roster });
     const out = [
       "HallPass Helper page outline (student and staff names are hidden)",
+      `Helper version: ${chrome.runtime.getManifest().version}`,
       `Site: ${location.host}`,
       `Page: ${R(location.pathname.replace(/\d+/g, "#"))}`,
       ...frameLines(),
