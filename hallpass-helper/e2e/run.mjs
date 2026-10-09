@@ -124,6 +124,7 @@ try {
   await hp.click('button:text("Yes, end it")');
   await until(async () => /3 steps/.test(await panelText("#teach")), "3 recorded steps");
   await panel.getByRole("button", { name: "Done" }).click();
+  await panel.waitForSelector('#teach[data-mode="review"]');
   const endRoles = await panel.$$eval("#teach .steps select", (els) => els.map((e) => e.value));
   check(JSON.stringify(endRoles) === JSON.stringify(["student", "fixed", "fixed"]), "teach end: guessed roles", JSON.stringify(endRoles));
   await panel.getByRole("button", { name: "Save" }).click();
@@ -177,8 +178,12 @@ try {
     await hp.click("button.create");
   }
   await until(async () => (await storage("outPasses")).outPasses.length === 2, "two passes out");
-  const alarms = await sw.evaluate(() => chrome.alarms.getAll());
-  check(alarms.filter((a) => a.name.startsWith("overdue:")).length === 2, "overdue: an alarm per pass", JSON.stringify(alarms));
+  // The background sets each pass's alarm a moment after the pass is saved.
+  await until(
+    async () => (await sw.evaluate(() => chrome.alarms.getAll())).filter((a) => a.name.startsWith("overdue:")).length === 2,
+    "an overdue alarm per pass",
+  );
+  check(true, "overdue: an alarm per pass");
   await hp.click('.card .name:text("Jordan Moore")');
 
   // --- Name-free outline, with the search showing a student who isn't on the roster ---
