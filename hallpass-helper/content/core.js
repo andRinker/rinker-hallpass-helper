@@ -23,7 +23,9 @@
     action actions bar box class classes click clock collapse collapsed content count day dest disabled
     dismiss drawer empty expand expanded footer grid group header hour hours info inner it link lunch
     nav outer overlay picker popover primary result results root sec seconds secondary selected
-    sidebar success text timer title toggle tooltip total value warning week wrapper yes`.split(/\s+/),
+    sidebar success text timer title toggle tooltip total value warning week wrapper yes
+    also ascending auto can currently descending either getting history learn managing notifications range
+    recent recurring release rooms there understanding upcoming user users where`.split(/\s+/),
   );
   HPH.UI_WORDS = UI_WORDS;
 
