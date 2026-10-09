@@ -1,4 +1,4 @@
-// Runs inside hallpass.goguardian.com and answers the side panel and background.
+// Runs inside HallPass and GoGuardian's home screen (any goguardian.com page) and answers the side panel and background.
 // HallPass itself is learned by watching (recorder.js) and replayed (replay.js), so nothing
 // here hard-codes HallPass's page layout.
 (() => {

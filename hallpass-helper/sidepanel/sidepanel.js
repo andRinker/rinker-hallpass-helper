@@ -1,6 +1,7 @@
 import { HALLPASS_URL, loadSettings, saveSettings } from "../lib/storage.js";
 import { currentPeriod, dateKey, formatClock, nextBell, scheduleForDate } from "../lib/bells.js";
 import { findStudents, periodKey, shortLabels } from "../lib/names.js";
+import { taughtHost } from "../lib/tabs.js";
 import { $, askHallPass, hallpassTab, stuckMessage, toast } from "./shared.js";
 import { initTeach, renderTeach } from "./teach.js";
 import { initWhosOut, renderWhosOut } from "./whos-out.js";
@@ -101,16 +102,16 @@ function renderStudents() {
 }
 
 async function renderHallPass() {
-  const { state } = await hallpassTab();
+  const { state, name } = await hallpassTab(taughtHost(settings?.macros.create));
   const messages = {
-    ready: "HallPass is open.",
-    stale: "Reload your HallPass tab so the helper can see it.",
-    closed: "HallPass isn't open.",
+    ready: `${name} is open.`,
+    stale: `Reload your ${name} tab so the helper can see it.`,
+    closed: `${name} isn't open.`,
   };
   $("hallpass").dataset.state = state;
   $("hallpass").querySelector(".text").textContent = messages[state];
   $("openHallpass").hidden = state === "ready";
-  $("openHallpass").textContent = state === "stale" ? "Reload it" : "Open HallPass";
+  $("openHallpass").textContent = state === "stale" ? "Reload it" : `Open ${name}`;
 }
 
 async function quickPass(student) {
@@ -118,7 +119,7 @@ async function quickPass(student) {
     toast('Teach the helper first: click "Teach: make a pass" above.');
     return;
   }
-  const result = await askHallPass({ type: "start-pass", student, destination });
+  const result = await askHallPass({ type: "start-pass", student, destination }, taughtHost(settings.macros.create));
   if (!result) return;
   if (result.waitingForFinal) toast(`Check it in HallPass, then click "${result.finalLabel}".`);
   else if (result.ok) toast("Filled in. Finish the pass in HallPass.");
@@ -137,10 +138,12 @@ $("schedule").addEventListener("change", (e) => {
 });
 $("settings").addEventListener("click", () => chrome.runtime.openOptionsPage());
 $("search").addEventListener("input", renderStudents);
+// Reloads or opens the same site the status line is talking about: the one the steps were taught on.
 $("openHallpass").addEventListener("click", async () => {
-  const { state, tab } = await hallpassTab();
+  const host = taughtHost(settings?.macros.create);
+  const { state, tab } = await hallpassTab(host);
   if (state === "stale") chrome.tabs.reload(tab.id);
-  else chrome.tabs.create({ url: HALLPASS_URL, pinned: true });
+  else chrome.tabs.create({ url: host ? `https://${host}/` : HALLPASS_URL, pinned: true });
 });
 $("outlineButton").addEventListener("click", showOutline);
 $("closeOutline").addEventListener("click", () => ($("outlineBox").hidden = true));

@@ -1,5 +1,6 @@
 // The Teach card: record a create or end run in HallPass, review the steps, save them.
 import { saveSettings } from "../lib/storage.js";
+import { hostOf } from "../lib/tabs.js";
 import { $, h, hallpassTab, toast } from "./shared.js";
 
 const HPH = globalThis.HallPassHelper;
@@ -24,7 +25,7 @@ const COPY = {
   },
 };
 
-let mode = { name: "idle" }; // idle | recording { kind, count, last } | review { kind, steps, roles }
+let mode = { name: "idle" }; // idle | recording { kind, host, count, last } | review { kind, host, steps, roles }
 let getSettings = () => ({});
 
 export async function initTeach(settingsGetter) {
@@ -39,34 +40,34 @@ export async function initTeach(settingsGetter) {
   const { state, tab } = await hallpassTab();
   if (state === "ready") {
     const status = await chrome.tabs.sendMessage(tab.id, { type: "teach-status" }).catch(() => null);
-    if (status?.recording) mode = { name: "recording", kind: status.kind, count: status.count, last: "" };
+    if (status?.recording) mode = { name: "recording", kind: status.kind, host: hostOf(tab.url), count: status.count, last: "" };
   }
   renderTeach();
 }
 
 async function start(kind) {
-  const { state, tab } = await hallpassTab();
+  const { state, tab, name } = await hallpassTab();
   if (state !== "ready") {
-    toast(state === "closed" ? "Open HallPass first, then teach." : "Reload your HallPass tab first.");
+    toast(state === "closed" ? `Open ${name} first, then teach.` : `Reload your ${name} tab first.`);
     return;
   }
   await chrome.tabs.sendMessage(tab.id, { type: "teach-start", kind });
   await chrome.tabs.update(tab.id, { active: true });
-  mode = { name: "recording", kind, count: 0, last: "" };
+  mode = { name: "recording", kind, host: hostOf(tab.url), count: 0, last: "" };
   renderTeach();
 }
 
 async function stop(keep) {
-  const { tab } = await hallpassTab();
+  const { tab } = await hallpassTab(mode.host);
   const result = tab ? await chrome.tabs.sendMessage(tab.id, { type: "teach-stop" }).catch(() => null) : null;
-  const kind = mode.kind;
+  const { kind, host } = mode;
   mode = { name: "idle" };
   if (keep) {
     const steps = result?.steps ?? [];
     if (!steps.length) toast("No steps were recorded. Start again and click through HallPass while it's watching.");
     else {
       const { roster, destinations } = getSettings();
-      mode = { name: "review", kind, steps, roles: HPH.guessRoles(steps, kind, { roster, destinations }) };
+      mode = { name: "review", kind, host, steps, roles: HPH.guessRoles(steps, kind, { roster, destinations }) };
     }
   }
   renderTeach();
@@ -87,14 +88,14 @@ function problems({ kind, roles }) {
 }
 
 async function save() {
-  const { kind, steps, roles } = mode;
+  const { kind, host, steps, roles } = mode;
   const blocking = problems(mode).find((p) => p.blocking);
   if (blocking) {
     toast(blocking.text);
     return;
   }
   const { macros } = getSettings();
-  await saveSettings({ macros: { ...macros, [kind]: { steps: HPH.scrubSteps(steps, roles), taughtAt: Date.now() } } });
+  await saveSettings({ macros: { ...macros, [kind]: { steps: HPH.scrubSteps(steps, roles), taughtAt: Date.now(), host } } });
   mode = { name: "idle" };
   toast(kind === "create" ? "Saved. Tap a student to try it." : "Saved. Back buttons will now end passes in HallPass.");
   renderTeach();

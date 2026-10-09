@@ -1,4 +1,4 @@
-import { HALLPASS_URL } from "../lib/storage.js";
+import { goGuardianTab, hostOf, siteName } from "../lib/tabs.js";
 
 export const $ = (id) => document.getElementById(id);
 
@@ -15,19 +15,21 @@ export function h(tag, props = {}, ...children) {
   return node;
 }
 
-export async function hallpassTab() {
-  const [tab] = await chrome.tabs.query({ url: `${HALLPASS_URL}*` });
-  if (!tab) return { state: "closed" };
+// `host` is the site the steps were taught on (HallPass or GoGuardian's home screen), when it matters.
+// `name` is what to call that site in messages.
+export async function hallpassTab(host) {
+  const tab = await goGuardianTab(host);
+  if (!tab) return { state: "closed", name: siteName(host) };
   const pong = await chrome.tabs.sendMessage(tab.id, { type: "ping" }).catch(() => null);
-  return { state: pong?.ok ? "ready" : "stale", tab };
+  return { state: pong?.ok ? "ready" : "stale", tab, name: siteName(hostOf(tab.url)) };
 }
 
 // Brings the HallPass tab forward and sends it a message. Background tabs run timers slowly,
 // so anything that clicks through HallPass should happen with the tab showing.
-export async function askHallPass(message) {
-  const { state, tab } = await hallpassTab();
+export async function askHallPass(message, host) {
+  const { state, tab, name } = await hallpassTab(host);
   if (state !== "ready") {
-    toast(state === "closed" ? "Open HallPass first." : "Reload your HallPass tab first.");
+    toast(state === "closed" ? `Open ${name} first.` : `Reload your ${name} tab first.`);
     return null;
   }
   await chrome.tabs.update(tab.id, { active: true });

@@ -1,5 +1,6 @@
 // Who's Out: passes made through the helper, with timers and a Back button.
 import { saveSettings } from "../lib/storage.js";
+import { taughtHost } from "../lib/tabs.js";
 import { $, askHallPass, h, stuckMessage, toast } from "./shared.js";
 
 let getSettings = () => ({});
@@ -22,7 +23,7 @@ async function back(pass) {
   }
   ending.add(pass.id);
   renderWhosOut();
-  const result = await askHallPass({ type: "end-pass", id: pass.id });
+  const result = await askHallPass({ type: "end-pass", id: pass.id }, taughtHost(getSettings().macros.end));
   ending.delete(pass.id);
   renderWhosOut();
   if (!result) return;
