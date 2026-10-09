@@ -15,7 +15,7 @@ The helper doesn't come knowing HallPass's screens. **You teach it once**: make 
   - If two students have the same name, it highlights both and lets you pick.
 - **Who's Out.** Passes you make through the helper are listed with live timers. They turn red after the number of minutes you set, and you get a desktop notice. **Back** ends the pass in HallPass once you've also taught **Teach: end a pass**. **×** just clears the row.
 - **End at the bell.** With your bell schedules entered and "End my open passes when the bell rings" turned on, the helper ends everyone still out at each bell and tells you who it was.
-- **Works on GoGuardian's home screen too.** Teach it wherever you usually make passes: HallPass itself or the GoGuardian home screen. It remembers where you taught it and goes back to that tab, even if both are open.
+- **Works on GoGuardian's home screen too.** Teach it wherever you usually make passes: HallPass itself or the GoGuardian home screen. It remembers where you taught it and goes back to that tab, even if both are open. It never tries the steps on a different GoGuardian page, so keep the one you taught it on open.
 - **Name-free page outline.** If the helper gets stuck, use **Copy HallPass page outline for Claude**. It produces a text outline of the HallPass screen with student and staff names turned into "Xxxxx". Look it over, then send it to yourself.
 
 ## At school: setting it up

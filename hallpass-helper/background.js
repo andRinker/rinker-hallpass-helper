@@ -1,5 +1,5 @@
 import { loadSettings } from "./lib/storage.js";
-import { goGuardianTab, taughtHost } from "./lib/tabs.js";
+import { goGuardianTab, siteName, taughtHost } from "./lib/tabs.js";
 import { nextBell, scheduleForDate } from "./lib/bells.js";
 
 const BELL_KEYS = ["schedules", "weekdaySchedule", "todayOverride"];
@@ -68,9 +68,11 @@ async function onOverdue(id) {
 async function onBell() {
   const { endAtBell, outPasses, macros } = await loadSettings();
   if (!endAtBell || !outPasses.length) return;
-  const tab = await goGuardianTab(taughtHost(macros.end));
+  const host = taughtHost(macros.end);
+  const name = siteName(host);
+  const tab = await goGuardianTab(host);
   if (!tab) {
-    notify("Bell rang", "HallPass isn't open, so no passes were ended.");
+    notify("Bell rang", `${name} isn't open, so no passes were ended.`);
     return;
   }
   // Background tabs run timers slowly, so show HallPass while it clicks through, then switch back.
@@ -79,7 +81,7 @@ async function onBell() {
   const result = await chrome.tabs.sendMessage(tab.id, { type: "end-my-passes" }).catch(() => null);
   if (previous && previous.id !== tab.id) chrome.tabs.update(previous.id, { active: true }).catch(() => {});
   if (!result) {
-    notify("Bell rang", "Couldn't reach HallPass. Reload the HallPass tab and check your passes.");
+    notify("Bell rang", `Couldn't reach ${name}. Reload the ${name} tab and check your passes.`);
     return;
   }
   if (result.reason === "no-end-macro") {

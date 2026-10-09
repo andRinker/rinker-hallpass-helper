@@ -46,9 +46,9 @@ export async function initTeach(settingsGetter) {
 }
 
 async function start(kind) {
-  const { state, tab } = await hallpassTab();
+  const { state, tab, name } = await hallpassTab();
   if (state !== "ready") {
-    toast(state === "closed" ? "Open HallPass first, then teach." : "Reload your HallPass tab first.");
+    toast(state === "closed" ? `Open ${name} first, then teach.` : `Reload your ${name} tab first.`);
     return;
   }
   await chrome.tabs.sendMessage(tab.id, { type: "teach-start", kind });

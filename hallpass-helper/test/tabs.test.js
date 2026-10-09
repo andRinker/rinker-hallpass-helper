@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { pickTab, taughtHost } from "../lib/tabs.js";
+import { pickTab, siteName, taughtHost } from "../lib/tabs.js";
 
 const tab = (id, url, lastAccessed) => ({ id, url, lastAccessed });
 const tabs = [
@@ -10,14 +10,14 @@ const tabs = [
   tab(4, "https://example.com/goguardian.com", 900),
 ];
 
-test("pickTab prefers the site the steps were taught on", () => {
+test("pickTab only uses the site the steps were taught on", () => {
   assert.equal(pickTab(tabs, "hallpass.goguardian.com").id, 1);
   assert.equal(pickTab(tabs, "teacher.goguardian.com").id, 2);
+  assert.equal(pickTab(tabs, "app.goguardian.com"), null);
 });
 
-test("pickTab falls back to the most recent GoGuardian tab, skipping the marketing site", () => {
+test("pickTab without a site takes the most recent GoGuardian tab, skipping the marketing site", () => {
   assert.equal(pickTab(tabs).id, 2);
-  assert.equal(pickTab(tabs, "app.goguardian.com").id, 2);
   assert.equal(pickTab([tabs[2], tabs[3]]), null);
 });
 
@@ -25,4 +25,10 @@ test("taughtHost treats older steps as taught on HallPass", () => {
   assert.equal(taughtHost(undefined), null);
   assert.equal(taughtHost({ steps: [] }), "hallpass.goguardian.com");
   assert.equal(taughtHost({ steps: [], host: "teacher.goguardian.com" }), "teacher.goguardian.com");
+});
+
+test("siteName calls everything but HallPass itself GoGuardian", () => {
+  assert.equal(siteName(null), "HallPass");
+  assert.equal(siteName("hallpass.goguardian.com"), "HallPass");
+  assert.equal(siteName("teacher.goguardian.com"), "GoGuardian");
 });

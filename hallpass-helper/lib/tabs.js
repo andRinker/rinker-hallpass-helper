@@ -17,12 +17,16 @@ export const hostOf = (url) => {
 // Steps taught before the helper knew about other sites were all taught on HallPass.
 export const taughtHost = (macro) => (macro ? (macro.host ?? HALLPASS_HOST) : null);
 
-// The most recently used GoGuardian tab, preferring one on `host` when given.
+// What to call a site in messages: HallPass itself, or GoGuardian for its home screen.
+export const siteName = (host) => (!host || host === HALLPASS_HOST ? "HallPass" : "GoGuardian");
+
+// The most recently used GoGuardian tab. With `host`, only a tab on that site counts, so taught
+// steps are never tried on a site they weren't taught on.
 export function pickTab(tabs, host) {
   const recent = tabs
     .filter((t) => hostOf(t.url).endsWith("goguardian.com") && hostOf(t.url) !== MARKETING_HOST)
     .sort((a, b) => (b.lastAccessed ?? 0) - (a.lastAccessed ?? 0));
-  return (host && recent.find((t) => hostOf(t.url) === host)) || recent[0] || null;
+  return (host ? recent.find((t) => hostOf(t.url) === host) : recent[0]) ?? null;
 }
 
 export async function goGuardianTab(host) {

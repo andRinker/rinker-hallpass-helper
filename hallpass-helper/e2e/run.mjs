@@ -248,12 +248,27 @@ try {
   await panel.getByRole("button", { name: "Save" }).click();
   const homeMacros = (await storage("macros")).macros;
   check(homeMacros.create?.host === "teacher.goguardian.com", "home screen: taught steps remember the site", homeMacros.create?.host);
+  const status = async (re) => until(async () => re.test((await panelText("#hallpass")) ?? ""), `status ${re}`, 30000);
+  await status(/GoGuardian is open/);
   await hp.bringToFront();
   await clearToast();
   await panel.click('#students button:text("Jordan Mi.")');
   await toast(/click "Create Pass"/);
   const homeForm = await home.evaluate(() => window.__mock.form?.student?.last);
   check(homeForm === "Miller", "home screen: one-tap pass fills in on the home screen", homeForm);
+
+  // With the home screen closed, its steps aren't tried in the HallPass tab that's still open.
+  await home.close();
+  await status(/GoGuardian isn't open/);
+  await clearToast();
+  await panel.click('#students button:text("Ava L.")');
+  await toast(/Open GoGuardian first/);
+  const stray = await hp.evaluate(() => !!window.__mock.form);
+  check(!stray, "home screen: its steps are never tried in HallPass");
+  const [reopened] = await Promise.all([ctx.waitForEvent("page"), panel.click("#openHallpass")]);
+  await reopened.waitForURL("https://teacher.goguardian.com/");
+  await status(/GoGuardian is open/);
+  check(true, "home screen: the open button goes back to the taught site");
 
   check(errors.length === 0, "no console errors", errors.join("\n     "));
 } catch (err) {
