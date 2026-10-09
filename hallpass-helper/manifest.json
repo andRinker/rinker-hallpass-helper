@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "HallPass Helper",
-  "version": "0.2.0",
-  "description": "Fewer clicks for teachers using GoGuardian Hall Pass. Not made by or affiliated with GoGuardian.",
+  "version": "0.3.0",
+  "description": "Sends your students to GoGuardian Hall Pass one at a time and ends passes on time. Not made by or affiliated with GoGuardian.",
   "permissions": [
     "storage",
     "sidePanel",
@@ -10,7 +10,7 @@
     "notifications"
   ],
   "host_permissions": [
-    "https://hallpass.goguardian.com/*"
+    "https://*.goguardian.com/*"
   ],
   "background": {
     "service_worker": "background.js",
@@ -36,7 +36,10 @@
   "content_scripts": [
     {
       "matches": [
-        "https://hallpass.goguardian.com/*"
+        "https://*.goguardian.com/*"
+      ],
+      "exclude_matches": [
+        "https://www.goguardian.com/*"
       ],
       "js": [
         "content/core.js",

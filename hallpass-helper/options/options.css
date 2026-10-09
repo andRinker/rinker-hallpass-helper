@@ -45,43 +45,6 @@ section > .hint {
   padding: 1px 8px;
 }
 
-.schedule {
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 10px;
-  margin-bottom: 10px;
-}
-
-.schedule-head {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  margin-bottom: 8px;
-}
-
-.schedule-name {
-  font-weight: 600;
-}
-
-.weekdays {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-  gap: 8px;
-}
-
-.weekdays label {
-  margin: 0;
-  font-weight: 500;
-  font-size: 13px;
-}
-
-label.check {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 18px;
-}
-
 footer {
   position: sticky;
   bottom: 0;
@@ -91,10 +54,6 @@ footer {
   gap: 12px;
   padding: 12px 0;
   background: var(--bg);
-}
-
-footer .errors {
-  flex-basis: 100%;
 }
 
 .saved {
