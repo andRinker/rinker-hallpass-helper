@@ -1,51 +1,22 @@
 import { HALLPASS_URL, loadSettings, saveSettings } from "../lib/storage.js";
-import { currentPeriod, dateKey, formatClock, nextBell, scheduleForDate } from "../lib/bells.js";
-import { findStudents, periodKey, shortLabels } from "../lib/names.js";
-import { $, askHallPass, hallpassTab, stuckMessage, toast } from "./shared.js";
+import { alreadyListed, queueEntry, studentFromText, suggestions } from "../lib/queue.js";
+import { taughtHost } from "../lib/tabs.js";
+import { $, askHallPass, hallpassTab, h, toast } from "./shared.js";
 import { initTeach, renderTeach } from "./teach.js";
 import { initWhosOut, renderWhosOut } from "./whos-out.js";
 
-const displayPeriod = (name) => (/^\d+$/.test(name) ? `Period ${name}` : name);
-
 let settings;
 let destination = null;
-let shownPeriod;
 
 async function refresh() {
   settings = await loadSettings();
   if (!settings.destinations.includes(destination)) destination = settings.destinations[0] ?? null;
-  renderSchedule();
   renderDestinations();
-  renderClock();
-  renderStudents();
+  renderSuggestions();
+  renderQueue();
   renderTeach();
   renderWhosOut();
   renderHallPass();
-}
-
-function renderSchedule() {
-  const today = scheduleForDate(settings, new Date());
-  const select = $("schedule");
-  select.replaceChildren(new Option("No school today", ""), ...settings.schedules.map((s) => new Option(s.name, s.id)));
-  select.value = today?.id ?? "";
-  select.disabled = !settings.schedules.length;
-}
-
-function renderClock() {
-  const now = new Date();
-  const schedule = scheduleForDate(settings, now);
-  const period = currentPeriod(schedule, now);
-  const bell = nextBell(schedule, now);
-  let text;
-  if (!settings.schedules.length) text = "Add your bell schedules in Settings.";
-  else if (!schedule) text = "No bell schedule today.";
-  else if (!bell) text = "Done for the day.";
-  else {
-    const when = `${formatClock(bell.period.end)} (${Math.ceil((bell.at - now) / 60000)} min)`;
-    text = period ? `${displayPeriod(period.name)} · bell at ${when}` : `Between periods · next bell ${when}`;
-  }
-  $("clock").textContent = text;
-  if ((period ? periodKey(period.name) : null) !== shownPeriod) renderStudents();
 }
 
 function renderDestinations() {
@@ -59,70 +30,133 @@ function renderDestinations() {
       pill.addEventListener("click", () => {
         destination = name;
         renderDestinations();
+        $("addName").focus();
       });
       return pill;
     }),
   );
 }
 
-// This period's students first; typing searches everyone on the roster.
-function renderStudents() {
-  const now = new Date();
-  const period = currentPeriod(scheduleForDate(settings, now), now);
-  shownPeriod = period ? periodKey(period.name) : null;
+// --- adding to the queue ---
 
-  const labels = shortLabels(settings.roster);
-  let list = settings.roster.map((s, i) => ({ ...s, label: labels[i] }));
-  let title = "My students";
-  const query = $("search").value;
-  if (query.trim()) {
-    list = findStudents(list, query);
-    title = "Search results";
-  } else if (shownPeriod && list.some((s) => s.period === shownPeriod)) {
-    list = list.filter((s) => s.period === shownPeriod);
-    title = `My students · ${displayPeriod(period.name)}`;
+async function add({ student, label }) {
+  const latest = await loadSettings();
+  const where = alreadyListed(latest, student);
+  if (where) {
+    toast(where === "queue" ? `${label} is already in the queue.` : `${label} is already out.`);
+    return;
   }
-  list.sort((a, b) => a.label.localeCompare(b.label));
-
-  $("studentsTitle").textContent = title;
-  $("students").replaceChildren(
-    ...list.map((student) => {
-      const chip = document.createElement("button");
-      chip.type = "button";
-      chip.textContent = student.label;
-      chip.title = `${student.first} ${student.last}`.trim();
-      chip.addEventListener("click", () => quickPass(student));
-      return chip;
-    }),
-  );
-  const empty = !settings.roster.length ? "Add your class lists in Settings." : !list.length ? "No one matches." : "";
-  $("studentsEmpty").textContent = empty;
-  $("studentsEmpty").hidden = !empty;
+  await saveSettings({ queue: [...latest.queue, queueEntry({ student, label, destination })] });
+  $("addName").value = "";
+  renderSuggestions();
+  $("addName").focus();
 }
 
+function renderSuggestions() {
+  const found = suggestions(settings.roster, $("addName").value);
+  $("suggestions").replaceChildren(
+    ...found.map((s) =>
+      h("button", { type: "button", title: `${s.student.first} ${s.student.last}`.trim(), onclick: () => add(s) }, s.label),
+    ),
+  );
+}
+
+$("addName").addEventListener("input", renderSuggestions);
+$("addForm").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const result = studentFromText(settings.roster, $("addName").value);
+  if (result.ok) add(result);
+  else if (result.reason === "several") toast("More than one student matches. Tap the right one below.");
+});
+
+// --- the queue itself ---
+
+function queueStatus() {
+  const { macros, queue, outPasses, queuePaused, queueProblem, maxOut, autoEndMinutes } = settings;
+  if (queueProblem) return { text: queueProblem, problem: true };
+  if (queuePaused) return { text: "Paused. No one is sent until you resume." };
+  if (!macros.create) return { text: "Teach the helper to make a pass first. Students wait here until then." };
+  const pace = maxOut === 1 ? "one at a time" : `${maxOut} at a time`;
+  if (!queue.length) return { text: `Add students and the helper sends them to HallPass ${pace}.` };
+  if (outPasses.length < maxOut) return { text: `Sending ${queue[0].label}…` };
+  const waitingOn =
+    maxOut === 1 ? `${outPasses[0].label} is back or their ${autoEndMinutes} minutes are up` : "a spot opens";
+  return { text: `${queue[0].label} goes next, when ${waitingOn}.` };
+}
+
+async function move(id, by) {
+  const { queue } = await loadSettings();
+  const i = queue.findIndex((e) => e.id === id);
+  const j = i + by;
+  if (i < 0 || j < 0 || j >= queue.length) return;
+  const next = [...queue];
+  [next[i], next[j]] = [next[j], next[i]];
+  await saveSettings({ queue: next });
+}
+
+async function removeFromQueue(id) {
+  const { queue } = await loadSettings();
+  await saveSettings({ queue: queue.filter((e) => e.id !== id) });
+}
+
+function renderQueue() {
+  const { queue, queuePaused } = settings;
+  const status = queueStatus();
+  $("queueStatus").textContent = status.text;
+  $("queueStatus").classList.toggle("problem", !!status.problem);
+  $("queueCount").textContent = queue.length ? `(${queue.length})` : "";
+  $("pause").textContent = queuePaused ? "Resume" : "Pause";
+  $("pause").classList.toggle("primary", queuePaused);
+  $("queueList").replaceChildren(
+    ...queue.map((entry, i) =>
+      h(
+        "li",
+        { class: "queue-row" },
+        h("span", { class: "place" }, `${i + 1}`),
+        h(
+          "div",
+          { class: "who" },
+          h("strong", {}, entry.label),
+          entry.destination ? h("span", { class: "muted" }, entry.destination) : null,
+        ),
+        h("button", {
+          class: "link",
+          type: "button",
+          title: "Move up",
+          "aria-label": `Move ${entry.label} up`,
+          disabled: i === 0,
+          onclick: () => move(entry.id, -1),
+        }, "↑"),
+        h("button", {
+          class: "link remove",
+          type: "button",
+          title: "Take out of the queue",
+          "aria-label": `Take ${entry.label} out of the queue`,
+          onclick: () => removeFromQueue(entry.id),
+        }, "×"),
+      ),
+    ),
+  );
+}
+
+$("pause").addEventListener("click", async () => {
+  const { queuePaused } = await loadSettings();
+  await saveSettings(queuePaused ? { queuePaused: false, queueProblem: "" } : { queuePaused: true });
+});
+
+// --- HallPass status and the outline ---
+
 async function renderHallPass() {
-  const { state } = await hallpassTab();
+  const { state, name } = await hallpassTab(taughtHost(settings?.macros.create));
   const messages = {
-    ready: "HallPass is open.",
-    stale: "Reload your HallPass tab so the helper can see it.",
-    closed: "HallPass isn't open.",
+    ready: `${name} is open.`,
+    stale: `Reload your ${name} tab so the helper can see it.`,
+    closed: `${name} isn't open. The queue waits until it is.`,
   };
   $("hallpass").dataset.state = state;
   $("hallpass").querySelector(".text").textContent = messages[state];
   $("openHallpass").hidden = state === "ready";
-  $("openHallpass").textContent = state === "stale" ? "Reload it" : "Open HallPass";
-}
-
-async function quickPass(student) {
-  if (!settings.macros.create) {
-    toast('Teach the helper first: click "Teach: make a pass" above.');
-    return;
-  }
-  const result = await askHallPass({ type: "start-pass", student, destination });
-  if (!result) return;
-  if (result.waitingForFinal) toast(`Check it in HallPass, then click "${result.finalLabel}".`);
-  else if (result.ok) toast("Filled in. Finish the pass in HallPass.");
-  else toast(stuckMessage(result));
+  $("openHallpass").textContent = state === "stale" ? "Reload it" : `Open ${name}`;
 }
 
 async function showOutline() {
@@ -132,15 +166,13 @@ async function showOutline() {
   $("outlineBox").hidden = false;
 }
 
-$("schedule").addEventListener("change", (e) => {
-  saveSettings({ todayOverride: { date: dateKey(new Date()), scheduleId: e.target.value } });
-});
 $("settings").addEventListener("click", () => chrome.runtime.openOptionsPage());
-$("search").addEventListener("input", renderStudents);
+// Reloads or opens the same site the status line is talking about: the one the steps were taught on.
 $("openHallpass").addEventListener("click", async () => {
-  const { state, tab } = await hallpassTab();
+  const host = taughtHost(settings?.macros.create);
+  const { state, tab } = await hallpassTab(host);
   if (state === "stale") chrome.tabs.reload(tab.id);
-  else chrome.tabs.create({ url: HALLPASS_URL, pinned: true });
+  else chrome.tabs.create({ url: host ? `https://${host}/` : HALLPASS_URL, pinned: true });
 });
 $("outlineButton").addEventListener("click", showOutline);
 $("closeOutline").addEventListener("click", () => ($("outlineBox").hidden = true));
@@ -153,7 +185,6 @@ chrome.storage.onChanged.addListener(refresh);
 chrome.tabs.onRemoved.addListener(renderHallPass);
 chrome.tabs.onUpdated.addListener((_id, info) => info.status === "complete" && renderHallPass());
 setInterval(() => {
-  renderClock();
   renderWhosOut();
   renderHallPass();
 }, 15000);

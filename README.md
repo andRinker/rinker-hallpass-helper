@@ -1,6 +1,6 @@
 ## HallPass Helper
 
-[HallPass Helper](hallpass-helper/) is a Chrome extension that gives teachers fewer clicks in GoGuardian Hall Pass.
+[HallPass Helper](hallpass-helper/) is a Chrome extension for GoGuardian Hall Pass. You line students up in its side panel, it sends them to HallPass one at a time, and it ends each pass after 7 minutes.
 
 ### Install the extension
 
