@@ -91,6 +91,16 @@ try {
   const toast = async (re) => until(async () => re.test((await panelText("#toast")) ?? ""), `toast ${re}`);
   const clearToast = () => panel.evaluate(() => (document.querySelector("#toast").textContent = ""));
 
+  // --- The setup guide says what's open and what to do first ---
+  const guideText = () => panelText("#guide");
+  await until(async () => /HallPass website\s*✓ Helper can see it/.test((await guideText()) ?? ""), "guide lists HallPass as seen");
+  const guideNow = (await guideText()) ?? "";
+  check(
+    /Create Pass window\s*Not open/.test(guideNow) && /Setup: 2 of 5 done/.test(guideNow) && /Click Teach: make a pass below/.test(guideNow),
+    "guide: shows the pages it can see and the next step",
+    guideNow.replace(/\s+/g, " ").slice(0, 300),
+  );
+
   // --- Teach: make a pass ---
   await panel.getByRole("button", { name: "Teach: make a pass" }).click();
   await panel.waitForSelector('#teach[data-mode="recording"]');
@@ -285,10 +295,16 @@ try {
   await until(async () => (await mockPasses(popup)).includes("Lee:Nurse"), "Ava sent in the pop-up", 30000);
   check((await mockPasses(hp)).length === 0, "pop-up: passes are made in the pop-up, not the main HallPass tab", JSON.stringify(await mockPasses(hp)));
 
+  // The guide sees the pop-up while it's open.
+  await until(async () => /Create Pass window\s*✓ Helper can see it/.test((await guideText()) ?? ""), "guide lists the Create Pass window as seen");
+  check(true, "guide: lists the Create Pass window once it's open");
+
   // With the pop-up closed, its steps aren't tried in the main tab, and there's no Open button for it.
   await popup.close();
   await until(async () => /Create Pass window isn't open/.test((await panelText("#hallpass")) ?? ""), "status says the pop-up is closed");
   check(await panel.locator("#openHallpass").isHidden(), "pop-up: no Open button (only the home screen can open it)");
+  await until(async () => /Create Pass window\s*Not open/.test((await guideText()) ?? ""), "guide lists the Create Pass window as closed");
+  check(/Help and setup guide/.test((await guideText()) ?? ""), "guide: folds itself away once everything is set up");
 
   check(errors.length === 0, "no console errors", errors.join("\n     "));
 } catch (err) {

@@ -2,6 +2,7 @@ import { HALLPASS_URL, loadSettings, saveSettings } from "../lib/storage.js";
 import { alreadyListed, queueEntry, studentFromText, suggestions } from "../lib/queue.js";
 import { allGoGuardianTabs, capitalize, hostOf, taughtPlace } from "../lib/tabs.js";
 import { $, askHallPass, hallpassTab, h, toast } from "./shared.js";
+import { renderGuide } from "./guide.js";
 import { initTeach, renderTeach } from "./teach.js";
 import { initWhosOut, renderWhosOut } from "./whos-out.js";
 
@@ -159,6 +160,7 @@ async function renderHallPass() {
   $("hallpass").querySelector(".text").textContent = messages[state];
   $("openHallpass").hidden = state === "ready" || (state === "closed" && !!place?.popup);
   $("openHallpass").textContent = state === "stale" ? "Reload it" : `Open ${name}`;
+  renderGuide(settings, $("teach").dataset.mode === "recording");
 }
 
 // Outlines every open GoGuardian tab, pop-up windows included. A pop-up (like the Create Pass window)

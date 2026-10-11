@@ -41,12 +41,19 @@ export function pickTab(tabs, place, popupWindowIds = new Set()) {
   return (place.preferPopup && fits.find(isPopup)) || fits[0] || null;
 }
 
+// Which of GoGuardian's pages a tab is: the Create Pass window (any pop-up), HallPass itself, or the
+// home screen (any other GoGuardian page in a normal window).
+export function pageKind(tab, popupIds = new Set()) {
+  if (popupIds.has(tab.windowId)) return "create";
+  return hostOf(tab.url) === HALLPASS_HOST ? "hallpass" : "home";
+}
+
 // Every open GoGuardian tab, including ones in pop-up windows (such as the Create Pass window).
 export async function allGoGuardianTabs() {
   return appTabs(await chrome.tabs.query({ url: GOGUARDIAN_TABS }));
 }
 
-async function popupWindowIds() {
+export async function popupWindowIds() {
   const windows = await chrome.windows.getAll().catch(() => []);
   return new Set(windows.filter((w) => w.type === "popup").map((w) => w.id));
 }

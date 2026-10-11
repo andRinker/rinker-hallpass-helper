@@ -312,3 +312,77 @@ header h1 {
 .out-row .who .problem {
   white-space: normal;
 }
+
+.guide-card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.guide-card summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.guide-body h3 {
+  margin: 14px 0 6px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.guide-pages,
+.guide-steps,
+.guide-stuck ol {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.guide-pages {
+  list-style: none;
+  padding-left: 0;
+}
+
+.guide-pages li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.guide-pages li span {
+  color: var(--muted);
+}
+
+.guide-pages li[data-state="ready"] span {
+  color: var(--ok);
+}
+
+.guide-pages li[data-state="stale"] span {
+  color: var(--danger);
+}
+
+.guide-steps li.done {
+  color: var(--ok);
+}
+
+.guide-steps li.later {
+  color: var(--muted);
+}
+
+.guide-steps li.active {
+  font-weight: 600;
+}
+
+.guide-steps li.active ul {
+  margin: 6px 0 0;
+  padding-left: 16px;
+  display: grid;
+  gap: 4px;
+  font-weight: 400;
+}

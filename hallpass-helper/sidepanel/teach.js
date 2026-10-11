@@ -1,6 +1,7 @@
 // The Teach card: record a create or end run in HallPass, review the steps, save them.
 import { saveSettings } from "../lib/storage.js";
 import { hostOf, isPopupTab } from "../lib/tabs.js";
+import { renderGuide } from "./guide.js";
 import { $, h, hallpassTab, toast } from "./shared.js";
 
 const HPH = globalThis.HallPassHelper;
@@ -196,4 +197,5 @@ export function renderTeach() {
   const view = mode.name === "recording" ? recordingView() : mode.name === "review" ? reviewView() : idleView();
   $("teach").replaceChildren(...view.filter(Boolean));
   $("teach").dataset.mode = mode.name;
+  renderGuide(getSettings(), mode.name === "recording");
 }
