@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { pickTab, siteName, taughtHost } from "../lib/tabs.js";
+import { pickTab, siteName, taughtPlace } from "../lib/tabs.js";
 
-const tab = (id, url, lastAccessed) => ({ id, url, lastAccessed });
+const tab = (id, url, lastAccessed, windowId = 1) => ({ id, url, lastAccessed, windowId });
 const tabs = [
   tab(1, "https://hallpass.goguardian.com/dashboard", 100),
   tab(2, "https://teacher.goguardian.com/", 300),
@@ -11,24 +11,44 @@ const tabs = [
 ];
 
 test("pickTab only uses the site the steps were taught on", () => {
-  assert.equal(pickTab(tabs, "hallpass.goguardian.com").id, 1);
-  assert.equal(pickTab(tabs, "teacher.goguardian.com").id, 2);
-  assert.equal(pickTab(tabs, "app.goguardian.com"), null);
+  assert.equal(pickTab(tabs, { host: "hallpass.goguardian.com" }).id, 1);
+  assert.equal(pickTab(tabs, { host: "teacher.goguardian.com" }).id, 2);
+  assert.equal(pickTab(tabs, { host: "app.goguardian.com" }), null);
 });
 
-test("pickTab without a site takes the most recent GoGuardian tab, skipping the marketing site", () => {
+test("pickTab without a place takes the most recent GoGuardian tab, skipping the marketing site", () => {
   assert.equal(pickTab(tabs).id, 2);
   assert.equal(pickTab([tabs[2], tabs[3]]), null);
 });
 
-test("taughtHost treats older steps as taught on HallPass", () => {
-  assert.equal(taughtHost(undefined), null);
-  assert.equal(taughtHost({ steps: [] }), "hallpass.goguardian.com");
-  assert.equal(taughtHost({ steps: [], host: "teacher.goguardian.com" }), "teacher.goguardian.com");
+// The Create Pass window is on the HallPass site, in a pop-up window of its own.
+const withPopup = [...tabs, tab(5, "https://hallpass.goguardian.com/s/passes/create", 200, 7)];
+const popups = new Set([7]);
+
+test("pickTab tells the pop-up from a normal tab on the same site", () => {
+  assert.equal(pickTab(withPopup, { host: "hallpass.goguardian.com", popup: true }, popups).id, 5);
+  assert.equal(pickTab(withPopup, { host: "hallpass.goguardian.com", popup: false }, popups).id, 1);
 });
 
-test("siteName calls everything but HallPass itself GoGuardian", () => {
+test("pickTab never falls back to a normal tab for steps taught in the pop-up", () => {
+  assert.equal(pickTab(tabs, { host: "hallpass.goguardian.com", popup: true }, popups), null);
+});
+
+test("pickTab prefers an open pop-up when teaching, otherwise any tab", () => {
+  assert.equal(pickTab(withPopup, { preferPopup: true }, popups).id, 5);
+  assert.equal(pickTab(tabs, { preferPopup: true }, popups).id, 2);
+});
+
+test("taughtPlace treats older steps as taught in a normal HallPass tab", () => {
+  assert.equal(taughtPlace(undefined), null);
+  assert.deepEqual(taughtPlace({ steps: [] }), { host: "hallpass.goguardian.com", popup: false });
+  assert.deepEqual(taughtPlace({ steps: [], host: "teacher.goguardian.com" }), { host: "teacher.goguardian.com", popup: false });
+  assert.deepEqual(taughtPlace({ steps: [], host: "hallpass.goguardian.com", popup: true }), { host: "hallpass.goguardian.com", popup: true });
+});
+
+test("siteName calls the pop-up the Create Pass window and everything but HallPass GoGuardian", () => {
   assert.equal(siteName(null), "HallPass");
-  assert.equal(siteName("hallpass.goguardian.com"), "HallPass");
-  assert.equal(siteName("teacher.goguardian.com"), "GoGuardian");
+  assert.equal(siteName({ host: "hallpass.goguardian.com" }), "HallPass");
+  assert.equal(siteName({ host: "teacher.goguardian.com" }), "GoGuardian");
+  assert.equal(siteName({ host: "hallpass.goguardian.com", popup: true }), "the Create Pass window");
 });

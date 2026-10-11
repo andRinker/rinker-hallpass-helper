@@ -1,6 +1,7 @@
 // The Teach card: record a create or end run in HallPass, review the steps, save them.
 import { saveSettings } from "../lib/storage.js";
-import { hostOf } from "../lib/tabs.js";
+import { hostOf, isPopupTab } from "../lib/tabs.js";
+import { renderGuide } from "./guide.js";
 import { $, h, hallpassTab, toast } from "./shared.js";
 
 const HPH = globalThis.HallPassHelper;
@@ -25,7 +26,11 @@ const COPY = {
   },
 };
 
-let mode = { name: "idle" }; // idle | recording { kind, host, count, last } | review { kind, host, steps, roles }
+// Teaching picks an open pop-up (the Create Pass window) over a normal tab, since you'd only have one open to teach in it.
+const TEACHING = { preferPopup: true };
+const placeOf = async (tab) => ({ host: hostOf(tab.url), popup: await isPopupTab(tab) });
+
+let mode = { name: "idle" }; // idle | recording { kind, place, count, last } | review { kind, place, steps, roles }
 let getSettings = () => ({});
 
 export async function initTeach(settingsGetter) {
@@ -37,37 +42,38 @@ export async function initTeach(settingsGetter) {
     }
   });
   // Pick up a recording that was already running when the panel opened.
-  const { state, tab } = await hallpassTab();
+  const { state, tab } = await hallpassTab(TEACHING);
   if (state === "ready") {
     const status = await chrome.tabs.sendMessage(tab.id, { type: "teach-status" }).catch(() => null);
-    if (status?.recording) mode = { name: "recording", kind: status.kind, host: hostOf(tab.url), count: status.count, last: "" };
+    if (status?.recording) mode = { name: "recording", kind: status.kind, place: await placeOf(tab), count: status.count, last: "" };
   }
   renderTeach();
 }
 
 async function start(kind) {
-  const { state, tab, name } = await hallpassTab();
+  // Passes are made in the Create Pass window but ended wherever you end them, so only making prefers the pop-up.
+  const { state, tab } = await hallpassTab(kind === "create" ? TEACHING : undefined);
   if (state !== "ready") {
-    toast(state === "closed" ? `Open ${name} first, then teach.` : `Reload your ${name} tab first.`);
+    toast(state === "closed" ? "Open HallPass or the Create Pass window first, then teach." : "Reload your GoGuardian tab first.");
     return;
   }
   await chrome.tabs.sendMessage(tab.id, { type: "teach-start", kind });
   await chrome.tabs.update(tab.id, { active: true });
-  mode = { name: "recording", kind, host: hostOf(tab.url), count: 0, last: "" };
+  mode = { name: "recording", kind, place: await placeOf(tab), count: 0, last: "" };
   renderTeach();
 }
 
 async function stop(keep) {
-  const { tab } = await hallpassTab(mode.host);
+  const { tab } = await hallpassTab(mode.place);
   const result = tab ? await chrome.tabs.sendMessage(tab.id, { type: "teach-stop" }).catch(() => null) : null;
-  const { kind, host } = mode;
+  const { kind, place } = mode;
   mode = { name: "idle" };
   if (keep) {
     const steps = result?.steps ?? [];
     if (!steps.length) toast("No steps were recorded. Start again and click through HallPass while it's watching.");
     else {
       const { roster, destinations } = getSettings();
-      mode = { name: "review", kind, host, steps, roles: HPH.guessRoles(steps, kind, { roster, destinations }) };
+      mode = { name: "review", kind, place, steps, roles: HPH.guessRoles(steps, kind, { roster, destinations }) };
     }
   }
   renderTeach();
@@ -83,14 +89,14 @@ function problems({ roles }) {
 }
 
 async function save() {
-  const { kind, host, steps, roles } = mode;
+  const { kind, place, steps, roles } = mode;
   const blocking = problems(mode).find((p) => p.blocking);
   if (blocking) {
     toast(blocking.text);
     return;
   }
   const { macros } = getSettings();
-  await saveSettings({ macros: { ...macros, [kind]: { steps: HPH.scrubSteps(steps, roles), taughtAt: Date.now(), host } } });
+  await saveSettings({ macros: { ...macros, [kind]: { steps: HPH.scrubSteps(steps, roles), taughtAt: Date.now(), host: place.host, popup: place.popup } } });
   mode = { name: "idle" };
   toast(kind === "create" ? "Saved. The queue will start sending students." : "Saved. Passes will now end on time in HallPass.");
   renderTeach();
@@ -191,4 +197,5 @@ export function renderTeach() {
   const view = mode.name === "recording" ? recordingView() : mode.name === "review" ? reviewView() : idleView();
   $("teach").replaceChildren(...view.filter(Boolean));
   $("teach").dataset.mode = mode.name;
+  renderGuide(getSettings(), mode.name === "recording");
 }

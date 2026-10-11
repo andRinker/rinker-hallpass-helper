@@ -1,9 +1,12 @@
 import { HALLPASS_URL, loadSettings, saveSettings } from "../lib/storage.js";
 import { alreadyListed, queueEntry, studentFromText, suggestions } from "../lib/queue.js";
-import { taughtHost } from "../lib/tabs.js";
+import { allGoGuardianTabs, capitalize, hostOf, taughtPlace } from "../lib/tabs.js";
 import { $, askHallPass, hallpassTab, h, toast } from "./shared.js";
+import { renderGuide } from "./guide.js";
 import { initTeach, renderTeach } from "./teach.js";
 import { initWhosOut, renderWhosOut } from "./whos-out.js";
+
+$("version").textContent = chrome.runtime.getManifest().version_name ?? chrome.runtime.getManifest().version;
 
 let settings;
 let destination = null;
@@ -147,32 +150,51 @@ $("pause").addEventListener("click", async () => {
 // --- HallPass status and the outline ---
 
 async function renderHallPass() {
-  const { state, name } = await hallpassTab(taughtHost(settings?.macros.create));
+  const place = taughtPlace(settings?.macros.create);
+  const { state, name } = await hallpassTab(place);
   const messages = {
-    ready: `${name} is open.`,
-    stale: `Reload your ${name} tab so the helper can see it.`,
-    closed: `${name} isn't open. The queue waits until it is.`,
+    ready: `${capitalize(name)} is open.`,
+    stale: `Reload ${name} so the helper can see it.`,
+    // The Create Pass window can only be opened from the GoGuardian home screen, so there's no button for it.
+    closed: `${capitalize(name)} isn't open. ${place?.popup ? "Click Create Pass on the GoGuardian home screen. " : ""}The queue waits until it is.`,
   };
   $("hallpass").dataset.state = state;
   $("hallpass").querySelector(".text").textContent = messages[state];
-  $("openHallpass").hidden = state === "ready";
+  $("openHallpass").hidden = state === "ready" || (state === "closed" && !!place?.popup);
   $("openHallpass").textContent = state === "stale" ? "Reload it" : `Open ${name}`;
+  renderGuide(settings, $("teach").dataset.mode === "recording");
 }
 
+// Outlines every open GoGuardian tab, pop-up windows included. A pop-up (like the Create Pass window)
+// has no side panel of its own, so open it, then click the button here in the main window.
 async function showOutline() {
-  const result = await askHallPass({ type: "outline" });
-  if (!result?.ok) return;
-  $("outlineText").value = result.text;
+  const tabs = await allGoGuardianTabs();
+  const parts = [];
+  for (const tab of tabs) {
+    const result = await chrome.tabs.sendMessage(tab.id, { type: "outline" }).catch(() => null);
+    const win = await chrome.windows.get(tab.windowId).catch(() => null);
+    const kind = win?.type === "popup" ? "pop-up window" : "browser window";
+    parts.push({ head: `${hostOf(tab.url)} (${kind}${tab.active ? ", showing" : ", in the background"})`, text: result?.ok ? result.text : null });
+  }
+  if (!parts.some((p) => p.text)) {
+    toast(tabs.length ? "Reload your GoGuardian tabs first." : "Open HallPass first.");
+    return;
+  }
+  const text =
+    parts.length === 1
+      ? parts[0].text
+      : parts.map((p, i) => `===== Page ${i + 1} of ${parts.length}: ${p.head} =====\n${p.text ?? "(the helper can't read this page. Reload it.)"}`).join("\n\n");
+  $("outlineText").value = text;
   $("outlineBox").hidden = false;
 }
 
 $("settings").addEventListener("click", () => chrome.runtime.openOptionsPage());
 // Reloads or opens the same site the status line is talking about: the one the steps were taught on.
 $("openHallpass").addEventListener("click", async () => {
-  const host = taughtHost(settings?.macros.create);
-  const { state, tab } = await hallpassTab(host);
+  const place = taughtPlace(settings?.macros.create);
+  const { state, tab } = await hallpassTab(place);
   if (state === "stale") chrome.tabs.reload(tab.id);
-  else chrome.tabs.create({ url: host ? `https://${host}/` : HALLPASS_URL, pinned: true });
+  else chrome.tabs.create({ url: place ? `https://${place.host}/` : HALLPASS_URL, pinned: true });
 });
 $("outlineButton").addEventListener("click", showOutline);
 $("closeOutline").addEventListener("click", () => ($("outlineBox").hidden = true));

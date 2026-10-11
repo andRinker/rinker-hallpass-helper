@@ -1,4 +1,4 @@
-import { goGuardianTab, hostOf, siteName } from "../lib/tabs.js";
+import { goGuardianTab, siteName } from "../lib/tabs.js";
 
 export const $ = (id) => document.getElementById(id);
 
@@ -15,20 +15,20 @@ export function h(tag, props = {}, ...children) {
   return node;
 }
 
-// `host` is the site the steps were taught on (HallPass or GoGuardian's home screen), when it matters.
-// `name` is what to call that site in messages.
-export async function hallpassTab(host) {
-  const tab = await goGuardianTab(host);
-  if (!tab) return { state: "closed", name: siteName(host) };
+// `place` is where the steps were taught: { host, popup } (see taughtPlace), when it matters.
+// `name` is what to call that place in messages.
+export async function hallpassTab(place) {
+  const tab = await goGuardianTab(place);
+  if (!tab) return { state: "closed", name: siteName(place) };
   const pong = await chrome.tabs.sendMessage(tab.id, { type: "ping" }).catch(() => null);
-  return { state: pong?.ok ? "ready" : "stale", tab, name: siteName(hostOf(tab.url)) };
+  return { state: pong?.ok ? "ready" : "stale", tab, name: siteName(place) };
 }
 
 // Sends a message to the GoGuardian tab the teacher used last, bringing it forward.
-export async function askHallPass(message, host) {
-  const { state, tab, name } = await hallpassTab(host);
+export async function askHallPass(message, place) {
+  const { state, tab, name } = await hallpassTab(place);
   if (state !== "ready") {
-    toast(state === "closed" ? `Open ${name} first.` : `Reload your ${name} tab first.`);
+    toast(state === "closed" ? `Open ${name} first.` : `Reload ${name} first.`);
     return null;
   }
   await chrome.tabs.update(tab.id, { active: true });

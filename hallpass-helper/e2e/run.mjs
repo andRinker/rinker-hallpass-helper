@@ -91,6 +91,16 @@ try {
   const toast = async (re) => until(async () => re.test((await panelText("#toast")) ?? ""), `toast ${re}`);
   const clearToast = () => panel.evaluate(() => (document.querySelector("#toast").textContent = ""));
 
+  // --- The setup guide says what's open and what to do first ---
+  const guideText = () => panelText("#guide");
+  await until(async () => /HallPass website\s*✓ Helper can see it/.test((await guideText()) ?? ""), "guide lists HallPass as seen");
+  const guideNow = (await guideText()) ?? "";
+  check(
+    /Create Pass window\s*Not open/.test(guideNow) && /Setup: 2 of 5 done/.test(guideNow) && /Click Teach: make a pass below/.test(guideNow),
+    "guide: shows the pages it can see and the next step",
+    guideNow.replace(/\s+/g, " ").slice(0, 300),
+  );
+
   // --- Teach: make a pass ---
   await panel.getByRole("button", { name: "Teach: make a pass" }).click();
   await panel.waitForSelector('#teach[data-mode="recording"]');
@@ -245,6 +255,56 @@ try {
     console.log(outline.split("\n").slice(0, 60).join("\n"));
   }
   await hp.click("button.cancel");
+
+  // --- Create Pass window: a pop-up on the HallPass site, told apart from the main HallPass tab ---
+  await hp.bringToFront();
+  const [popup] = await Promise.all([
+    ctx.waitForEvent("page"),
+    hp.evaluate(() => window.open("https://hallpass.goguardian.com/s/passes/create", "createpass", "popup,width=520,height=760")),
+  ]);
+  watch(popup, "popup");
+  await until(() => popup.url().includes("/passes/create"), "the pop-up to load");
+  await popup.waitForSelector("#newPass");
+  await panel.click("#outlineButton");
+  await until(async () => /Page 1 of 2/.test(await panel.inputValue("#outlineText")), "outline of both windows");
+  check(/pop-up window/.test(await panel.inputValue("#outlineText")), "outline: labels the pop-up window");
+  await panel.getByRole("button", { name: "Re-teach", exact: true }).click();
+  await panel.waitForSelector('#teach[data-mode="recording"]');
+  await popup.click("#newPass");
+  await popup.click('[role=combobox][aria-label="Site"]');
+  await popup.click('[role=option]:text("Middle School South")');
+  await popup.locator(".student-search").pressSequentially("jor", { delay: 60 });
+  await popup.click('.results [role=option]:has-text("Jordan Miller")');
+  await popup.selectOption('select[aria-label="Teacher"]', { label: "Ms. Rivera" });
+  await popup.click('.chip:text("6th Grade Bathroom")');
+  await popup.click('button:text("Create Pass")');
+  await until(async () => /8 steps/.test(await panelText("#teach")), "8 steps recorded in the pop-up");
+  await panel.getByRole("button", { name: "Done" }).click();
+  await panel.getByRole("button", { name: "Save" }).click();
+  const popMacro = (await storage("macros")).macros.create;
+  check(popMacro?.popup === true && popMacro?.host === "hallpass.goguardian.com", "pop-up: taught steps remember the Create Pass window", JSON.stringify({ host: popMacro?.host, popup: popMacro?.popup }));
+  await until(async () => /Create Pass window is open/.test((await panelText("#hallpass")) ?? ""), "status names the pop-up");
+
+  // The queue sends into the pop-up, not the main HallPass tab; ending still happens in the main tab.
+  await outIs("Jordan Mi.");
+  await backdate(8);
+  await until(async () => (await mockPasses(hp)).length === 0, "Jordan Mi. ended in the main HallPass tab", 30000);
+  await panel.click('#destinations button:text("Nurse")');
+  await panel.fill("#addName", "ava lee");
+  await panel.press("#addName", "Enter");
+  await until(async () => (await mockPasses(popup)).includes("Lee:Nurse"), "Ava sent in the pop-up", 30000);
+  check((await mockPasses(hp)).length === 0, "pop-up: passes are made in the pop-up, not the main HallPass tab", JSON.stringify(await mockPasses(hp)));
+
+  // The guide sees the pop-up while it's open.
+  await until(async () => /Create Pass window\s*✓ Helper can see it/.test((await guideText()) ?? ""), "guide lists the Create Pass window as seen");
+  check(true, "guide: lists the Create Pass window once it's open");
+
+  // With the pop-up closed, its steps aren't tried in the main tab, and there's no Open button for it.
+  await popup.close();
+  await until(async () => /Create Pass window isn't open/.test((await panelText("#hallpass")) ?? ""), "status says the pop-up is closed");
+  check(await panel.locator("#openHallpass").isHidden(), "pop-up: no Open button (only the home screen can open it)");
+  await until(async () => /Create Pass window\s*Not open/.test((await guideText()) ?? ""), "guide lists the Create Pass window as closed");
+  check(/Help and setup guide/.test((await guideText()) ?? ""), "guide: folds itself away once everything is set up");
 
   check(errors.length === 0, "no console errors", errors.join("\n     "));
 } catch (err) {
