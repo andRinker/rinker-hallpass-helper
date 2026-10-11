@@ -6,6 +6,8 @@ import { renderGuide } from "./guide.js";
 import { initTeach, renderTeach } from "./teach.js";
 import { initWhosOut, renderWhosOut } from "./whos-out.js";
 
+$("version").textContent = chrome.runtime.getManifest().version_name ?? chrome.runtime.getManifest().version;
+
 let settings;
 let destination = null;
 
