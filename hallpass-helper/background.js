@@ -2,7 +2,7 @@
 // and ends each pass once its time is up. Everything that clicks through HallPass runs here,
 // one thing at a time, so the queue, the timers and the Back button never trip over each other.
 import { loadSettings, saveSettings } from "./lib/storage.js";
-import { goGuardianTab, hostOf, siteName, taughtHost } from "./lib/tabs.js";
+import { capitalize, goGuardianTab, hostOf, siteName, taughtPlace } from "./lib/tabs.js";
 import { dueToEnd, endsAt, nextToSend } from "./lib/queue.js";
 
 const WATCHED = ["queue", "queuePaused", "outPasses", "maxOut", "autoEndMinutes", "macros"];
@@ -106,7 +106,7 @@ function stuckText(result, name) {
     case "no-end-macro":
       return "The helper hasn't been taught that yet.";
     case undefined:
-      return `Couldn't reach ${name}. Reload the ${name} tab.`;
+      return `Couldn't reach ${name}. Reload it.`;
     default:
       return `Something went wrong in ${name}.`;
   }
@@ -114,9 +114,9 @@ function stuckText(result, name) {
 
 async function send(entry) {
   const { macros } = await loadSettings();
-  const host = taughtHost(macros.create);
-  const name = siteName(host);
-  const tab = await goGuardianTab(host);
+  const place = taughtPlace(macros.create);
+  const name = siteName(place);
+  const tab = await goGuardianTab(place);
   if (!tab) {
     await saveSettings({ queueProblem: `Open ${name} so ${entry.label} can go.` });
     return;
@@ -156,8 +156,8 @@ async function endPass(id, { manual = false } = {}) {
   const { outPasses, macros, autoEndMinutes } = await loadSettings();
   const pass = outPasses.find((p) => p.id === id);
   if (!pass) return { ok: true };
-  const host = taughtHost(macros.end);
-  const name = siteName(host);
+  const place = taughtPlace(macros.end);
+  const name = siteName(place);
   const timesUp = `${pass.label}'s ${autoEndMinutes} minutes are up`;
   if (!macros.end) {
     if (!manual) {
@@ -166,10 +166,10 @@ async function endPass(id, { manual = false } = {}) {
     }
     return { ok: false, reason: "no-end-macro" };
   }
-  const tab = await goGuardianTab(host);
+  const tab = await goGuardianTab(place);
   if (!tab) {
     if (!manual) {
-      await markFailed(pass, `${name} wasn't open.`);
+      await markFailed(pass, `${capitalize(name)} wasn't open.`);
       notify("Pass not ended", `${timesUp}, but ${name} isn't open. End it in ${name}.`);
     }
     return { ok: false, reason: "closed" };
