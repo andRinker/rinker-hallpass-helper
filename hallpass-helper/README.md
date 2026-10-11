@@ -20,7 +20,7 @@ The helper doesn't come knowing HallPass's screens. **You teach it once**: make 
 - **Works on GoGuardian's home screen too.** Teach it wherever you usually make passes: HallPass itself or the GoGuardian home screen. It remembers where you taught it and goes back to that tab, even if both are open.
 - **Works in the Create Pass window.** The Create Pass button on the home screen opens a small window of its own. To use it: click **Create Pass** so the window is open, then **Teach: make a pass** (or **Re-teach**) in the side panel and make one pass in that window. The helper then makes passes in that window whenever it's open, and tells you when it isn't. Ending passes still happens wherever you taught **Teach: end a pass**.
 - **HallPass has to stay open.** The helper works in your open HallPass tab. While it makes or ends a pass, it brings that tab forward for a moment and then switches back. To keep that out of sight (say, on a projector), give HallPass its own Chrome window.
-- **Name-free page outline.** If the helper gets stuck, use **Copy HallPass page outline for Claude**. It produces a text outline of the HallPass screen with student and staff names turned into "Xxxxx". Look it over, then send it to yourself.
+- **Name-free page outline.** If the helper gets stuck, use **Copy outline of open GoGuardian pages**. It produces a text outline of every open GoGuardian page with student and staff names turned into "Xxxxx". Look it over, then send it to yourself.
 
 ## At school: setting it up
 
@@ -36,7 +36,7 @@ The helper doesn't come knowing HallPass's screens. **You teach it once**: make 
 5. Open HallPass, or the GoGuardian home screen if that's where you make passes. (If you use the home screen's Create Pass window, click **Create Pass** and teach inside that window.) In the side panel, click **Teach: make a pass**, make one real pass all the way through Create, then click **Done**. Check the guesses and **Save**.
 6. Click **Teach: end a pass**, end that same pass in HallPass, then **Done** → **Save**.
 7. Type a student into the queue and watch the helper make the pass.
-8. Stuck somewhere? Click **Copy HallPass page outline for Claude**, check the preview, and email it to yourself to paste into the chat.
+8. Stuck somewhere? Click **Copy outline of open GoGuardian pages**, check the preview, and email it to yourself to paste into the chat.
 
 Updating later: replace the folder with the new download, then click the reload arrow on the extension in `chrome://extensions`. Reload any open GoGuardian tabs afterward.
 
@@ -80,5 +80,6 @@ Set `E2E_SHOTS=/some/dir` to save screenshots.
 | `content/outline.js` | The name-free page outline |
 | `content/hallpass.js` | Answers the side panel and background inside HallPass or the home screen |
 | `background.js` | Sends the next student when a spot opens, ends passes on time, notices |
+| `lib/guide.js` | Works out the setup guide: which pages are seen and what to do next |
 | `sidepanel/` | Side panel: queue, Teach card, Out now, outline |
 | `options/` | Settings page |
