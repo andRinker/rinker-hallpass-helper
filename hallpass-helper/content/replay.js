@@ -116,39 +116,13 @@
     highlights = [];
   };
 
-  // --- waiting for the teacher to click the final button ---
-
-  let finalWatch = null;
-
-  HPH.stopFinalWatch = () => {
-    if (!finalWatch) return;
-    document.removeEventListener("click", finalWatch.onClick, true);
-    clearTimeout(finalWatch.timer);
-    finalWatch = null;
-  };
-
-  function watchFinal(desc, params) {
-    HPH.stopFinalWatch();
-    const onClick = (e) => {
-      if (!e.isTrusted || !(e.target instanceof Element)) return;
-      const { el } = HPH.clickableRoot(e.target);
-      if (!HPH.findTargets(desc, params).includes(el)) return;
-      HPH.stopFinalWatch();
-      HPH.clearHighlights();
-      HPH.onPassCreated?.(params);
-    };
-    document.addEventListener("click", onClick, true);
-    finalWatch = { onClick, timer: setTimeout(() => (HPH.stopFinalWatch(), HPH.clearHighlights()), 3 * 60 * 1000) };
-  }
-
   // --- the replay itself ---
 
-  // Resolves { ok: true } when every step ran, { ok: true, waitingForFinal } when it stopped at the
-  // final button for the teacher, or { ok: false, reason: "stuck" | "ambiguous" | "busy", step, label }.
-  HPH.runMacro = async (macro, params, { stopAtFinal = true } = {}) => {
+  // Runs every step, including the final button. Resolves { ok: true }, or
+  // { ok: false, reason: "stuck" | "ambiguous" | "busy", step, label } without clicking anything further.
+  HPH.runMacro = async (macro, params) => {
     if (HPH.busy) return { ok: false, reason: "busy" };
     HPH.busy = true;
-    HPH.stopFinalWatch();
     HPH.clearHighlights();
     const fail = (reason, i) => ({ ok: false, reason, step: i + 1, label: HPH.stepLabel(macro.steps[i]) });
     try {
@@ -173,12 +147,6 @@
           return fail("ambiguous", i);
         }
         const el = HPH.pick(els, step.target);
-
-        if (step.role === "final" && stopAtFinal) {
-          HPH.highlight([el], "Check it, then click here");
-          watchFinal(step.target, params);
-          return { ok: true, waitingForFinal: true, finalLabel: step.target.name };
-        }
 
         if (step.action === "click") realClick(el);
         else if (step.action === "type") {

@@ -8,12 +8,9 @@
     <link rel="stylesheet" href="sidepanel.css" />
   </head>
   <body>
-    <header>
-      <div class="row">
-        <select id="schedule" aria-label="Today's bell schedule"></select>
-        <button id="settings" class="link" type="button">Settings</button>
-      </div>
-      <div id="clock" class="clock"></div>
+    <header class="row">
+      <h1>HallPass Helper</h1>
+      <button id="settings" class="link" type="button">Settings</button>
     </header>
 
     <section id="hallpass" class="status">
@@ -25,17 +22,23 @@
     <section id="teach" class="card teach" aria-live="polite"></section>
 
     <section>
-      <h2 id="studentsTitle">My students</h2>
+      <div class="row section-head">
+        <h2>Queue <span id="queueCount"></span></h2>
+        <button id="pause" type="button"></button>
+      </div>
+      <p id="queueStatus" class="queue-status" aria-live="polite"></p>
+      <form id="addForm" autocomplete="off">
+        <input id="addName" type="text" placeholder="Type a student's name, then Enter" aria-label="Add a student to the queue" />
+      </form>
       <div id="destinations" class="pills" role="radiogroup" aria-label="Destination"></div>
-      <input id="search" type="search" placeholder="Find any of your students" />
-      <div id="students" class="chips"></div>
-      <p id="studentsEmpty" class="hint" hidden></p>
+      <div id="suggestions" class="chips"></div>
+      <ol id="queueList" class="queue-list"></ol>
     </section>
 
     <section>
-      <h2>Who's out <span id="outCount"></span></h2>
+      <h2>Out now <span id="outCount"></span></h2>
       <div id="outList" class="out-list"></div>
-      <p id="outEmpty" class="hint">Passes you make with the helper show up here.</p>
+      <p id="outEmpty" class="hint">Students the helper sends show up here with a timer.</p>
     </section>
 
     <section class="tools">

@@ -94,11 +94,28 @@
     return out;
   }
 
+  // Frames aren't outlined, but if HallPass sits in one on the home screen, Claude needs to know.
+  function frameLines() {
+    const hosts = [...document.querySelectorAll("iframe")]
+      .filter((f) => HPH.visible(f))
+      .map((f) => {
+        try {
+          return new URL(f.src, location.href).host || "(blank)";
+        } catch {
+          return "(unknown)";
+        }
+      });
+    return hosts.length ? [`Embedded frames: ${hosts.join(", ")}`] : [];
+  }
+
   HPH.pageOutline = ({ keep = [], roster = [], macros = {} } = {}) => {
     const R = (text) => HPH.redact(text, { keep, roster });
     const out = [
       "HallPass Helper page outline (student and staff names are hidden)",
+      `Helper version: ${chrome.runtime.getManifest().version}`,
+      `Site: ${location.host}`,
       `Page: ${R(location.pathname.replace(/\d+/g, "#"))}`,
+      ...frameLines(),
       `Window: ${innerWidth}x${innerHeight}`,
       ...macroLines(macros, R),
       "",

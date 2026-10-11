@@ -5,7 +5,7 @@
     <title>Mock Hall Pass</title>
     <!--
       A stand-in for HallPass used by e2e/run.mjs. It's made awkward on purpose:
-      a clickable div with no button markup, a dropdown that opens on mousedown, a student search
+      a clickable div with no button markup, a dropdown that opens on mousedown and picks on mouse release (so no click follows), a student search
       that only matches first OR last names and answers after a delay, a native select, clickable
       chips, cards that re-render, and an "are you sure" dialog. Names are made up.
     -->
@@ -102,10 +102,12 @@
             const li = document.createElement("li");
             li.setAttribute("role", "option");
             li.textContent = site;
-            li.addEventListener("click", () => {
+            // Picks on mouse release and removes the list right away, so no click event follows.
+            li.addEventListener("pointerup", () => {
               state.form.site = site;
               $(".site-picker", dialog).textContent = site;
               list.hidden = true;
+              list.innerHTML = "";
             });
             list.append(li);
           }

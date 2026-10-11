@@ -1,42 +1,13 @@
-// Runs inside hallpass.goguardian.com and answers the side panel and background.
+// Runs inside HallPass and GoGuardian's home screen (any goguardian.com page) and answers the side panel and background.
 // HallPass itself is learned by watching (recorder.js) and replayed (replay.js), so nothing
-// here hard-codes HallPass's page layout.
+// here hard-codes HallPass's page layout. Deciding who to send and when lives in background.js.
 (() => {
   const HPH = globalThis.HallPassHelper;
 
-  const minutesSince = (t) => Math.max(0, Math.round((Date.now() - t) / 60000));
+  const getMacros = async () => (await chrome.storage.local.get({ macros: {} })).macros;
 
-  // Called by replay.js when the teacher clicks the final button.
-  HPH.onPassCreated = async ({ student, destination }) => {
-    const { outPasses } = await chrome.storage.local.get({ outPasses: [] });
-    outPasses.push({
-      id: crypto.randomUUID(),
-      student: { first: student.first, last: student.last },
-      label: student.label ?? `${student.first} ${student.last}`.trim(),
-      destination: destination ?? "",
-      startedAt: Date.now(),
-    });
-    await chrome.storage.local.set({ outPasses });
-  };
-
-  // Ends the given passes (all of them when ids is null) with the taught "end" steps.
-  async function endPasses(ids) {
-    const { macros, outPasses } = await chrome.storage.local.get({ macros: {}, outPasses: [] });
-    if (!macros.end) return { ok: false, reason: "no-end-macro", ended: [], failed: [] };
-    const ended = [];
-    const failed = [];
-    for (const pass of outPasses.filter((p) => !ids || ids.includes(p.id))) {
-      const result = await HPH.runMacro(macros.end, { student: pass.student }, { stopAtFinal: false });
-      const summary = { id: pass.id, student: pass.label, minutesOut: minutesSince(pass.startedAt) };
-      if (result.ok) ended.push(summary);
-      else failed.push({ ...summary, reason: result.reason, step: result.step, label: result.label });
-    }
-    if (ended.length) {
-      const { outPasses: latest } = await chrome.storage.local.get({ outPasses: [] });
-      await chrome.storage.local.set({ outPasses: latest.filter((p) => !ended.some((e) => e.id === p.id)) });
-    }
-    return { ok: !failed.length, ended, failed };
-  }
+  // While the teacher is teaching, the helper keeps its hands off the page.
+  const teaching = () => HPH.recordingStatus().recording;
 
   const handlers = {
     ping: async () => ({ ok: true }),
@@ -46,13 +17,19 @@
     },
     "teach-status": async () => ({ ok: true, ...HPH.recordingStatus() }),
     "teach-stop": async () => ({ ok: true, ...HPH.stopRecording() }),
-    "start-pass": async ({ student, destination }) => {
-      const { macros } = await chrome.storage.local.get({ macros: {} });
-      if (!macros.create) return { ok: false, reason: "not-taught" };
-      return HPH.runMacro(macros.create, { student, destination });
+    // Makes the pass all the way through the final button.
+    "make-pass": async ({ student, destination }) => {
+      if (teaching()) return { ok: false, reason: "teaching" };
+      const { create } = await getMacros();
+      if (!create) return { ok: false, reason: "not-taught" };
+      return HPH.runMacro(create, { student, destination });
     },
-    "end-pass": ({ id }) => endPasses([id]),
-    "end-my-passes": () => endPasses(null),
+    "end-pass": async ({ student }) => {
+      if (teaching()) return { ok: false, reason: "teaching" };
+      const { end } = await getMacros();
+      if (!end) return { ok: false, reason: "no-end-macro" };
+      return HPH.runMacro(end, { student });
+    },
     outline: async () => {
       const s = await chrome.storage.local.get({
         school: "",

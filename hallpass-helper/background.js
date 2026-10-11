@@ -1,51 +1,73 @@
-import { HALLPASS_URL, loadSettings } from "./lib/storage.js";
-import { nextBell, scheduleForDate } from "./lib/bells.js";
+// The engine: sends the next student in the teacher's queue to HallPass when a spot opens,
+// and ends each pass once its time is up. Everything that clicks through HallPass runs here,
+// one thing at a time, so the queue, the timers and the Back button never trip over each other.
+import { loadSettings, saveSettings } from "./lib/storage.js";
+import { goGuardianTab, hostOf, siteName, taughtHost } from "./lib/tabs.js";
+import { dueToEnd, endsAt, nextToSend } from "./lib/queue.js";
 
-const BELL_KEYS = ["schedules", "weekdaySchedule", "todayOverride"];
+const WATCHED = ["queue", "queuePaused", "outPasses", "maxOut", "autoEndMinutes", "macros"];
 
+function setup() {
+  // A steady heartbeat, in case Chrome put the helper to sleep between alarms.
+  chrome.alarms.create("tick", { periodInMinutes: 0.5 });
+  sync();
+}
 chrome.runtime.onInstalled.addListener(() => {
   chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
-  armBell();
-  syncOverdue();
+  setup();
 });
-chrome.runtime.onStartup.addListener(() => {
-  armBell();
-  syncOverdue();
-});
+chrome.runtime.onStartup.addListener(setup);
+chrome.alarms.onAlarm.addListener(() => sync());
 chrome.storage.onChanged.addListener((changes) => {
-  if (BELL_KEYS.some((k) => k in changes)) armBell();
-  if ("outPasses" in changes || "overdueMinutes" in changes) syncOverdue();
+  if (WATCHED.some((k) => k in changes)) sync();
+});
+// Opening or reloading HallPass may be what the queue was waiting for.
+chrome.tabs.onUpdated.addListener((_id, info, tab) => {
+  if (info.status === "complete" && hostOf(tab.url).endsWith("goguardian.com")) sync();
 });
 
-// A bell alarm that fires late (laptop asleep) is skipped, so it can't end passes made after that bell.
-const LATE_BELL_MS = 2 * 60 * 1000;
-
-chrome.alarms.onAlarm.addListener(async (alarm) => {
-  if (alarm.name.startsWith("overdue:")) return onOverdue(alarm.name.slice("overdue:".length));
-  if (alarm.name === "bell" && Date.now() - alarm.scheduledTime < LATE_BELL_MS) await onBell();
-  armBell();
+chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg?.type !== "end-now") return false;
+  serial(() => endPass(msg.id, { manual: true })).then(sendResponse, (err) =>
+    sendResponse({ ok: false, reason: String(err) }),
+  );
+  return true;
 });
 
-// One alarm for the next bell today; after the last bell, wake just after midnight to arm tomorrow's.
-async function armBell() {
-  const settings = await loadSettings();
-  const now = new Date();
-  const bell = nextBell(scheduleForDate(settings, now), now);
-  await Promise.all([chrome.alarms.clear("bell"), chrome.alarms.clear("rearm")]);
-  if (bell) {
-    chrome.alarms.create("bell", { when: bell.at.getTime() });
-  } else {
-    const tomorrow = new Date(now);
-    tomorrow.setHours(24, 1, 0, 0);
-    chrome.alarms.create("rearm", { when: tomorrow.getTime() });
-  }
+// --- one thing at a time ---
+
+let chain = Promise.resolve();
+const serial = (fn) => (chain = chain.catch(() => {}).then(fn));
+
+// Many storage changes in a row only need one more look.
+let lookQueued = false;
+function sync() {
+  if (lookQueued) return chain;
+  lookQueued = true;
+  return serial(async () => {
+    lookQueued = false;
+    await look();
+  });
 }
 
-// One alarm per pass that's out, set for the moment it becomes overdue.
-async function syncOverdue() {
-  const { outPasses, overdueMinutes } = await loadSettings();
-  const wanted = new Map(outPasses.map((p) => [`overdue:${p.id}`, p.startedAt + overdueMinutes * 60000]));
-  const existing = (await chrome.alarms.getAll()).filter((a) => a.name.startsWith("overdue:"));
+async function look() {
+  let s = await loadSettings();
+  await armEndAlarms(s);
+  // End first, so a pass that's up frees its spot before the next student goes.
+  for (const pass of dueToEnd(s)) await endPass(pass.id);
+  s = await loadSettings();
+  const next = nextToSend(s);
+  if (next && s.macros.create) await send(next);
+  // A note like "Open HallPass so Ava can go" is stale once no one is waiting to go.
+  else if (!next && !s.queuePaused && s.queueProblem) await saveSettings({ queueProblem: "" });
+}
+
+// One alarm per open pass, at the moment its time is up.
+async function armEndAlarms({ outPasses, autoEndMinutes }) {
+  const wanted = new Map(
+    outPasses.filter((p) => !p.endFailed).map((p) => [`end:${p.id}`, endsAt(p, autoEndMinutes)]),
+  );
+  const existing = (await chrome.alarms.getAll()).filter((a) => a.name.startsWith("end:"));
   const current = new Set();
   for (const alarm of existing) {
     if (Math.abs((wanted.get(alarm.name) ?? 0) - alarm.scheduledTime) < 1000) current.add(alarm.name);
@@ -56,41 +78,114 @@ async function syncOverdue() {
   }
 }
 
-async function onOverdue(id) {
-  const { outPasses, overdueMinutes } = await loadSettings();
-  const pass = outPasses.find((p) => p.id === id);
-  if (!pass) return;
-  const where = pass.destination ? ` (${pass.destination})` : "";
-  notify("Overdue pass", `${pass.label} has been out ${overdueMinutes} minutes${where}.`);
+// Background tabs run timers slowly, so show the HallPass tab while it clicks through, then switch back.
+// If HallPass has a window of its own, nothing the teacher is looking at changes.
+async function inTab(tab, message) {
+  const [previous] = await chrome.tabs.query({ active: true, windowId: tab.windowId });
+  const switching = previous && previous.id !== tab.id;
+  if (switching) await chrome.tabs.update(tab.id, { active: true });
+  try {
+    return await chrome.tabs.sendMessage(tab.id, message);
+  } catch {
+    return null;
+  } finally {
+    if (switching) chrome.tabs.update(previous.id, { active: true }).catch(() => {});
+  }
 }
 
-async function onBell() {
-  const { endAtBell, outPasses } = await loadSettings();
-  if (!endAtBell || !outPasses.length) return;
-  const [tab] = await chrome.tabs.query({ url: `${HALLPASS_URL}*` });
+// Reasons to just try again on the next look, without bothering the teacher.
+const TRY_LATER = new Set(["busy", "teaching"]);
+
+function stuckText(result, name) {
+  switch (result?.reason) {
+    case "ambiguous":
+      return "More than one student in HallPass matches that name.";
+    case "stuck":
+      return `Got stuck at step ${result.step} (${result.label}). Try re-teaching, or copy the page outline for Claude.`;
+    case "not-taught":
+    case "no-end-macro":
+      return "The helper hasn't been taught that yet.";
+    case undefined:
+      return `Couldn't reach ${name}. Reload the ${name} tab.`;
+    default:
+      return `Something went wrong in ${name}.`;
+  }
+}
+
+async function send(entry) {
+  const { macros } = await loadSettings();
+  const host = taughtHost(macros.create);
+  const name = siteName(host);
+  const tab = await goGuardianTab(host);
   if (!tab) {
-    notify("Bell rang", "HallPass isn't open, so no passes were ended.");
+    await saveSettings({ queueProblem: `Open ${name} so ${entry.label} can go.` });
     return;
   }
-  // Background tabs run timers slowly, so show HallPass while it clicks through, then switch back.
-  const [previous] = await chrome.tabs.query({ active: true, windowId: tab.windowId });
-  await chrome.tabs.update(tab.id, { active: true });
-  const result = await chrome.tabs.sendMessage(tab.id, { type: "end-my-passes" }).catch(() => null);
-  if (previous && previous.id !== tab.id) chrome.tabs.update(previous.id, { active: true }).catch(() => {});
-  if (!result) {
-    notify("Bell rang", "Couldn't reach HallPass. Reload the HallPass tab and check your passes.");
+  const result = await inTab(tab, { type: "make-pass", student: entry.student, destination: entry.destination });
+  if (TRY_LATER.has(result?.reason)) return;
+  if (!result?.ok) {
+    const why = stuckText(result, name);
+    await saveSettings({ queuePaused: true, queueProblem: `${entry.label} wasn't sent. ${why}` });
+    notify("Queue paused", `${entry.label} wasn't sent. ${why}`);
     return;
   }
-  if (result.reason === "no-end-macro") {
-    notify("Bell rang", "Teach the helper how you end a pass (in the side panel) so it can end passes at the bell.");
-    return;
+  const s = await loadSettings();
+  await saveSettings({
+    queue: s.queue.filter((e) => e.id !== entry.id),
+    outPasses: [
+      ...s.outPasses,
+      {
+        id: entry.id,
+        student: entry.student,
+        label: entry.label,
+        destination: entry.destination,
+        startedAt: Date.now(),
+      },
+    ],
+    queueProblem: "",
+  });
+}
+
+async function markFailed(pass, why) {
+  const { outPasses } = await loadSettings();
+  await saveSettings({ outPasses: outPasses.map((p) => (p.id === pass.id ? { ...p, endFailed: why } : p)) });
+}
+
+// Ends a pass in HallPass. Time's up unless `manual` (the teacher pressed Back).
+async function endPass(id, { manual = false } = {}) {
+  const { outPasses, macros, autoEndMinutes } = await loadSettings();
+  const pass = outPasses.find((p) => p.id === id);
+  if (!pass) return { ok: true };
+  const host = taughtHost(macros.end);
+  const name = siteName(host);
+  const timesUp = `${pass.label}'s ${autoEndMinutes} minutes are up`;
+  if (!macros.end) {
+    if (!manual) {
+      await markFailed(pass, "Teach the helper how to end a pass.");
+      notify("Pass not ended", `${timesUp}. Teach the helper how you end a pass so it can do it for you.`);
+    }
+    return { ok: false, reason: "no-end-macro" };
   }
-  if (result.ended.length) {
-    notify("Ended at the bell", result.ended.map((p) => `${p.student} (out ${p.minutesOut} min)`).join(", "));
+  const tab = await goGuardianTab(host);
+  if (!tab) {
+    if (!manual) {
+      await markFailed(pass, `${name} wasn't open.`);
+      notify("Pass not ended", `${timesUp}, but ${name} isn't open. End it in ${name}.`);
+    }
+    return { ok: false, reason: "closed" };
   }
-  if (result.failed.length) {
-    notify("Still open after the bell", `Couldn't end: ${result.failed.map((p) => p.student).join(", ")}. Check HallPass.`);
+  const result = await inTab(tab, { type: "end-pass", student: pass.student });
+  if (TRY_LATER.has(result?.reason)) return result;
+  if (!result?.ok) {
+    const why = stuckText(result, name);
+    await markFailed(pass, why);
+    if (!manual) notify("Pass not ended", `${timesUp}, but the helper couldn't end it. ${why}`);
+    return result ?? { ok: false };
   }
+  const latest = await loadSettings();
+  await saveSettings({ outPasses: latest.outPasses.filter((p) => p.id !== id) });
+  if (!manual) notify("Pass ended", `${pass.label}'s pass ended at ${autoEndMinutes} minutes.`);
+  return { ok: true };
 }
 
 function notify(title, message) {
