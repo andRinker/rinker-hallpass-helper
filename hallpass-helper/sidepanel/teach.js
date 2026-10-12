@@ -29,9 +29,19 @@ export async function initTeach(settingsGetter) {
   getSettings = settingsGetter;
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg?.type === "teach-progress" && mode.name === "recording") {
-      mode = { ...mode, count: msg.count, last: msg.last };
+      mode = { ...mode, count: msg.count, last: msg.last, steps: msg.steps ?? mode.steps }; // kept here too: the page (a closing window) can vanish with them
       renderTeach();
       switchToWindow(false);
+    }
+  });
+  // Closing the Create Pass window is a natural last step. The window takes its recording with it, so finish
+  // with the steps the panel has been keeping.
+  chrome.tabs.onRemoved.addListener(async () => {
+    if (mode.name !== "recording" || mode.stage === "opener" || !mode.count) return;
+    const { state } = await hallpassTab(mode.place);
+    if (state === "closed" && mode.name === "recording") {
+      toast("That window closed, so I took it as the end. Check the steps below.");
+      stop(true);
     }
   });
   chrome.tabs.onUpdated.addListener((_id, info) => info.status === "complete" && switchToWindow(false));
@@ -111,7 +121,7 @@ async function switchToWindow(manual) {
     const part1 = home.tab ? await chrome.tabs.sendMessage(home.tab.id, { type: "teach-stop" }).catch(() => null) : null;
     await chrome.tabs.sendMessage(win.tab.id, { type: "teach-start", kind: "create" });
     await chrome.tabs.update(win.tab.id, { active: true });
-    mode = { ...mode, stage: "make", openerSteps: part1?.steps ?? [], openerHost: mode.place.host, place: { kind: "create", host: hostOf(win.tab.url) }, count: 0, last: "" };
+    mode = { ...mode, stage: "make", openerSteps: part1?.steps ?? [], openerHost: mode.place.host, place: { kind: "create", host: hostOf(win.tab.url) }, count: 0, last: "", steps: [] };
     renderTeach();
   } finally {
     switching = false;
@@ -121,10 +131,10 @@ async function switchToWindow(manual) {
 async function stop(keep) {
   const { tab } = await hallpassTab(mode.place);
   const result = tab ? await chrome.tabs.sendMessage(tab.id, { type: "teach-stop" }).catch(() => null) : null;
-  const { kind, method: how, place, openerSteps, openerHost } = mode;
+  const { kind, method: how, place, openerSteps, openerHost, steps: kept } = mode;
   mode = { name: "idle" };
   if (keep) {
-    const steps = result?.steps ?? [];
+    const steps = result?.steps?.length ? result.steps : (kept ?? []);
     if (!steps.length) toast("No steps were recorded. Start again and click through the page while it's watching.");
     else {
       const { roster, destinations } = getSettings();

@@ -322,6 +322,32 @@ try {
   const popup2 = await until(async () => ctx.pages().find((p) => p.url().includes("/window/passes/create")), "the helper opened the Create Pass window from the home screen", 30000);
   await until(async () => (await mockPasses(popup2)).includes("Lee:Nurse"), "Ava sent in the window the helper opened", 30000);
   await until(async () => /Create Pass window\s*✓ Helper can see it · taught/.test((await guideText()) ?? ""), "guide lists the Create Pass window as seen and taught");
+  // Teaching, then closing the Create Pass window as the last step (the window takes its recording with it).
+  const closePopups = () =>
+    ctx.serviceWorkers()[0].evaluate(async () => {
+      for (const w of await chrome.windows.getAll()) if (w.type === "popup") await chrome.windows.remove(w.id);
+    });
+  await closePopups();
+  await until(async () => !ctx.pages().some((p) => p.url().includes("/window/passes/create")), "the window to close before re-teaching");
+  await home2.bringToFront();
+  await panel.getByRole("button", { name: "Re-teach: Home screen → Create Pass window" }).click();
+  const [popup3] = await Promise.all([ctx.waitForEvent("page"), home2.click("#openCreate")]);
+  await popup3.waitForSelector("#newPass");
+  await until(async () => /part 2 of 2/.test((await panelText("#teach")) ?? ""), "part 2 starts again");
+  await popup3.click("#newPass");
+  await popup3.click('[role=combobox][aria-label="Site"]');
+  await popup3.click('[role=option]:text("Middle School South")');
+  await popup3.locator(".student-search").pressSequentially("jor", { delay: 60 });
+  await popup3.click('.results [role=option]:has-text("Jordan Miller")');
+  await popup3.selectOption('select[aria-label="Teacher"]', { label: "Ms. Rivera" });
+  await popup3.click('.chip:text("6th Grade Bathroom")');
+  await popup3.click('button:text("Create Pass")');
+  await until(async () => /8 steps/.test(await panelText("#teach")), "8 steps recorded before closing");
+  await closePopups();
+  await panel.waitForSelector('#teach[data-mode="review"]');
+  check((await panel.$$("#teach .steps li")).length === 8, "closing the window ends the recording and keeps all 8 steps");
+  await panel.getByRole("button", { name: "Save" }).click();
+  check((await storage("macros")).macros.make.create.steps.length === 8, "the steps taught before closing the window are saved");
   check(/Help and setup guide/.test((await guideText()) ?? ""), "guide: folds itself away once everything is set up");
 
   check(errors.length === 0, "no console errors", errors.join("\n     "));
