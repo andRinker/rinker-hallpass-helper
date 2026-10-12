@@ -22,8 +22,10 @@ export const taughtPlace = (macro) => (macro ? { host: macro.host ?? HALLPASS_HO
 export const capitalize = (text) => text.charAt(0).toUpperCase() + text.slice(1);
 
 // What to call a place in messages.
-export const siteName = (place) =>
-  place?.popup ? "the Create Pass window" : !place?.host || place.host === HALLPASS_HOST ? "HallPass" : "GoGuardian";
+export const siteName = (place) => {
+  if (place?.kind) return { create: "the Create Pass window", hallpass: "HallPass", home: "GoGuardian" }[place.kind];
+  return place?.popup ? "the Create Pass window" : !place?.host || place.host === HALLPASS_HOST ? "HallPass" : "GoGuardian";
+};
 
 export const appTabs = (tabs) =>
   tabs.filter((t) => hostOf(t.url).endsWith("goguardian.com") && hostOf(t.url) !== MARKETING_HOST);
@@ -35,6 +37,10 @@ export function pickTab(tabs, place, popupWindowIds = new Set()) {
   const isPopup = (t) => popupWindowIds.has(t.windowId);
   const recent = appTabs(tabs).sort((a, b) => (b.lastAccessed ?? 0) - (a.lastAccessed ?? 0));
   if (!place) return recent[0] ?? null;
+  // A place with a kind names one of the three pages (see pageKind), and on the same site if it has a host.
+  if (place.kind) {
+    return recent.find((t) => pageKind(t, popupWindowIds) === place.kind && (!place.host || hostOf(t.url) === place.host)) ?? null;
+  }
   const fits = recent.filter(
     (t) => (!place.host || hostOf(t.url) === place.host) && (place.popup === undefined || isPopup(t) === place.popup),
   );

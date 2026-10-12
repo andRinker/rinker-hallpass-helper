@@ -1,6 +1,7 @@
 // The Teach card: record a create or end run in HallPass, review the steps, save them.
 import { saveSettings } from "../lib/storage.js";
-import { hostOf, isPopupTab } from "../lib/tabs.js";
+import { METHODS, makeMethods, method } from "../lib/methods.js";
+import { allGoGuardianTabs, hostOf, isPopupTab, pageKind, popupWindowIds } from "../lib/tabs.js";
 import { renderGuide } from "./guide.js";
 import { $, h, hallpassTab, toast } from "./shared.js";
 
@@ -13,24 +14,15 @@ const ROLE_CHOICES = {
   final: "Final button (Create)",
 };
 
-const COPY = {
-  create: {
-    button: "Teach: make a pass",
-    watching: "Watching… make a pass in HallPass",
-    how: "Do it the way you always do, for any student, all the way through clicking Create. It makes one real pass; you can end it right after. From then on the helper does every step, Create included, for each student in the queue."
-  },
-  end: {
-    button: "Teach: end a pass",
-    watching: "Watching… end a pass in HallPass",
-    how: "Find a pass that's out and end it the way you always do, including any \"Are you sure?\" step.",
-  },
+const END_COPY = {
+  watching: "Watching… end a pass",
+  how: "Find a pass that's out and end it the way you always do, including any \"Are you sure?\" step.",
 };
 
-// Teaching picks an open pop-up (the Create Pass window) over a normal tab, since you'd only have one open to teach in it.
-const TEACHING = { preferPopup: true };
+// Ending a pass is taught wherever you end passes; making is taught once per way (see lib/methods.js).
 const placeOf = async (tab) => ({ host: hostOf(tab.url), popup: await isPopupTab(tab) });
 
-let mode = { name: "idle" }; // idle | recording { kind, place, count, last } | review { kind, place, steps, roles }
+let mode = { name: "idle" }; // idle | recording { kind, method?, place, count, last } | review { kind, method?, place, steps, roles }
 let getSettings = () => ({});
 
 export async function initTeach(settingsGetter) {
@@ -42,38 +34,49 @@ export async function initTeach(settingsGetter) {
     }
   });
   // Pick up a recording that was already running when the panel opened.
-  const { state, tab } = await hallpassTab(TEACHING);
-  if (state === "ready") {
+  const popups = await popupWindowIds();
+  for (const tab of await allGoGuardianTabs()) {
     const status = await chrome.tabs.sendMessage(tab.id, { type: "teach-status" }).catch(() => null);
-    if (status?.recording) mode = { name: "recording", kind: status.kind, place: await placeOf(tab), count: status.count, last: "" };
+    if (!status?.recording) continue;
+    const kind = pageKind(tab, popups);
+    mode = {
+      name: "recording",
+      kind: status.kind,
+      method: status.kind === "create" ? kind : undefined,
+      place: status.kind === "create" ? { kind, host: hostOf(tab.url) } : await placeOf(tab),
+      count: status.count,
+      last: "",
+    };
+    break;
   }
   renderTeach();
 }
 
-async function start(kind) {
-  // Passes are made in the Create Pass window but ended wherever you end them, so only making prefers the pop-up.
-  const { state, tab } = await hallpassTab(kind === "create" ? TEACHING : undefined);
+// kind is "create" (making a pass, taught per method) or "end".
+async function start(kind, how) {
+  const { state, tab } = await hallpassTab(kind === "create" ? { kind: how } : undefined);
   if (state !== "ready") {
-    toast(state === "closed" ? "Open HallPass or the Create Pass window first, then teach." : "Reload your GoGuardian tab first.");
+    toast(state === "closed" ? (kind === "create" ? method(how).closed : "Open HallPass first, then teach.") : "Reload your GoGuardian tab first.");
     return;
   }
   await chrome.tabs.sendMessage(tab.id, { type: "teach-start", kind });
   await chrome.tabs.update(tab.id, { active: true });
-  mode = { name: "recording", kind, place: await placeOf(tab), count: 0, last: "" };
+  const place = kind === "create" ? { kind: how, host: hostOf(tab.url) } : await placeOf(tab);
+  mode = { name: "recording", kind, method: how, place, count: 0, last: "" };
   renderTeach();
 }
 
 async function stop(keep) {
   const { tab } = await hallpassTab(mode.place);
   const result = tab ? await chrome.tabs.sendMessage(tab.id, { type: "teach-stop" }).catch(() => null) : null;
-  const { kind, place } = mode;
+  const { kind, method: how, place } = mode;
   mode = { name: "idle" };
   if (keep) {
     const steps = result?.steps ?? [];
-    if (!steps.length) toast("No steps were recorded. Start again and click through HallPass while it's watching.");
+    if (!steps.length) toast("No steps were recorded. Start again and click through the page while it's watching.");
     else {
       const { roster, destinations } = getSettings();
-      mode = { name: "review", kind, place, steps, roles: HPH.guessRoles(steps, kind, { roster, destinations }) };
+      mode = { name: "review", kind, method: how, place, steps, roles: HPH.guessRoles(steps, kind, { roster, destinations }) };
     }
   }
   renderTeach();
@@ -89,16 +92,20 @@ function problems({ roles }) {
 }
 
 async function save() {
-  const { kind, place, steps, roles } = mode;
+  const { kind, method: how, place, steps, roles } = mode;
   const blocking = problems(mode).find((p) => p.blocking);
   if (blocking) {
     toast(blocking.text);
     return;
   }
   const { macros } = getSettings();
-  await saveSettings({ macros: { ...macros, [kind]: { steps: HPH.scrubSteps(steps, roles), taughtAt: Date.now(), host: place.host, popup: place.popup } } });
+  const macro = { steps: HPH.scrubSteps(steps, roles), taughtAt: Date.now(), host: place.host, popup: kind === "create" ? how === "create" : place.popup };
+  if (kind === "create") {
+    // `create` stays as the most recently taught way, so older checks that look for it keep working.
+    await saveSettings({ macros: { ...macros, make: { ...makeMethods(macros), [how]: { ...macro, kind: how } }, create: { ...macro, kind: how } } });
+  } else await saveSettings({ macros: { ...macros, end: macro } });
   mode = { name: "idle" };
-  toast(kind === "create" ? "Saved. The queue will start sending students." : "Saved. Passes will now end on time in HallPass.");
+  toast(kind === "create" ? `Saved: ${method(how).name}. The queue will use it when that page is open.` : "Saved. Passes will now end on time in HallPass.");
   renderTeach();
 }
 
@@ -107,7 +114,7 @@ function reviewView() {
   const choices = Object.entries(ROLE_CHOICES).filter(([role]) => kind === "create" || role !== "final");
   const issues = problems(mode);
   return [
-    h("h2", {}, "Check the steps"),
+    h("h2", {}, kind === "create" ? `Check the steps: ${method(mode.method).name}` : "Check the steps: ending a pass"),
     h("p", { class: "hint" }, "The helper guessed which steps change each time. Fix any that look wrong."),
     h(
       "ol",
@@ -140,17 +147,21 @@ function reviewView() {
       "div",
       { class: "row" },
       h("button", { class: "primary", type: "button", onclick: save }, "Save"),
-      h("button", { type: "button", onclick: () => start(kind) }, "Start over"),
+      h("button", { type: "button", onclick: () => start(kind, mode.method) }, "Start over"),
       h("button", { class: "link", type: "button", onclick: () => ((mode = { name: "idle" }), renderTeach()) }, "Cancel"),
     ),
   ];
 }
 
 function recordingView() {
-  const copy = COPY[mode.kind];
+  const m = mode.kind === "create" ? method(mode.method) : null;
   return [
-    h("h2", {}, copy.watching),
-    h("p", { class: "hint" }, copy.how),
+    h("h2", {}, m ? `Watching: ${m.name}` : END_COPY.watching),
+    m
+      ? h("p", { class: "hint" }, "You're teaching ONE way. ", m.use)
+      : null,
+    h("ol", { class: "hint" }, (m ? m.steps : [END_COPY.how]).map((line) => h("li", {}, line))),
+    m ? h("p", { class: "hint" }, "The helper then does every step, Create included, for each student in the queue. It makes one real pass; you can end it right after.") : null,
     h("p", { class: "recording" }, `${mode.count} step${mode.count === 1 ? "" : "s"} so far`, mode.last ? ` · last: ${mode.last}` : ""),
     h(
       "div",
@@ -163,32 +174,30 @@ function recordingView() {
 
 function idleView() {
   const { macros } = getSettings();
-  if (!macros.create) {
-    return [
-      h("h2", {}, "Teach the helper"),
-      h("p", { class: "hint" }, "Make one pass in HallPass while the helper watches. After that, it makes passes for the students in your queue."),
-      h("button", { class: "primary", type: "button", onclick: () => start("create") }, COPY.create.button),
-    ];
-  }
-  if (!macros.end) {
-    return [
-      h("p", { class: "taught" }, "✓ Knows how to make a pass"),
-      h("p", { class: "hint" }, "Next, end a pass while it watches, so passes end on time and Back ends them in HallPass."),
+  const taught = makeMethods(macros);
+  const any = Object.keys(taught).length > 0;
+  return [
+    h("h2", {}, "Teach the helper"),
+    h(
+      "p",
+      { class: "hint" },
+      "A pass can be made in up to three places. Each one has its own button below, and each button watches only the page it names. Teach every way you use; the helper then uses whichever taught page is open.",
+    ),
+    ...METHODS.map((m) =>
       h(
         "div",
-        { class: "row" },
-        h("button", { class: "primary", type: "button", onclick: () => start("end") }, COPY.end.button),
-        h("button", { class: "link", type: "button", onclick: () => start("create") }, "Re-teach making"),
+        { class: "method", "data-taught": taught[m.kind] ? "yes" : "no" },
+        h("strong", {}, `${taught[m.kind] ? "✓ " : ""}${m.name}`),
+        h("p", { class: "hint" }, `Use this if: ${m.use}`),
+        h("button", { class: taught[m.kind] || !any ? "" : "primary", type: "button", onclick: () => start("create", m.kind) }, `${taught[m.kind] ? "Re-teach" : "Teach"}: ${m.name}`),
       ),
-    ];
-  }
-  return [
+    ),
     h(
       "div",
-      { class: "row taught" },
-      h("span", {}, "✓ Knows how to make and end a pass"),
-      h("button", { class: "link", type: "button", onclick: () => start("create") }, "Re-teach"),
-      h("button", { class: "link", type: "button", onclick: () => start("end") }, "Re-teach ending"),
+      { class: "method", "data-taught": macros.end ? "yes" : "no" },
+      h("strong", {}, `${macros.end ? "✓ " : ""}Ending a pass`),
+      h("p", { class: "hint" }, "Teach this once, so passes end on time and Back ends them in HallPass."),
+      h("button", { class: macros.end || !any ? "" : "primary", type: "button", onclick: () => start("end") }, macros.end ? "Re-teach: end a pass" : "Teach: end a pass"),
     ),
   ];
 }

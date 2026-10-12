@@ -96,13 +96,13 @@ try {
   await until(async () => /HallPass website\s*✓ Helper can see it/.test((await guideText()) ?? ""), "guide lists HallPass as seen");
   const guideNow = (await guideText()) ?? "";
   check(
-    /Create Pass window\s*Not open/.test(guideNow) && /Setup: 2 of 5 done/.test(guideNow) && /Click Teach: make a pass below/.test(guideNow),
+    /Create Pass window\s*Not open/.test(guideNow) && /Setup: 2 of 5 done/.test(guideNow) && /Teach: Create Pass window/.test(guideNow),
     "guide: shows the pages it can see and the next step",
     guideNow.replace(/\s+/g, " ").slice(0, 300),
   );
 
   // --- Teach: make a pass ---
-  await panel.getByRole("button", { name: "Teach: make a pass" }).click();
+  await panel.getByRole("button", { name: "Teach: HallPass website" }).click();
   await panel.waitForSelector('#teach[data-mode="recording"]');
   await hp.click("#newPass");
   await hp.click('[role=combobox][aria-label="Site"]');
@@ -139,7 +139,7 @@ try {
   const endRoles = await panel.$$eval("#teach .steps select", (els) => els.map((e) => e.value));
   check(JSON.stringify(endRoles) === JSON.stringify(["student", "fixed", "fixed"]), "teach end: guessed roles", JSON.stringify(endRoles));
   await panel.getByRole("button", { name: "Save" }).click();
-  await until(async () => /Knows how to make and end/.test(await panelText("#teach")), "taught both");
+  await until(async () => /Re-teach: end a pass/.test(await panelText("#teach")), "taught both");
 
   // --- Queue: typed name + Enter, then a tapped suggestion; only one goes at a time ---
   const mockPasses = (page = hp) => page.evaluate(() => window.__mock.passes.map((p) => `${p.student.last}:${p.dest}`));
@@ -268,7 +268,7 @@ try {
   await panel.click("#outlineButton");
   await until(async () => /Page 1 of 2/.test(await panel.inputValue("#outlineText")), "outline of both windows");
   check(/pop-up window/.test(await panel.inputValue("#outlineText")), "outline: labels the pop-up window");
-  await panel.getByRole("button", { name: "Re-teach", exact: true }).click();
+  await panel.getByRole("button", { name: "Teach: Create Pass window" }).click();
   await panel.waitForSelector('#teach[data-mode="recording"]');
   await popup.click("#newPass");
   await popup.click('[role=combobox][aria-label="Site"]');
@@ -281,7 +281,7 @@ try {
   await until(async () => /8 steps/.test(await panelText("#teach")), "8 steps recorded in the pop-up");
   await panel.getByRole("button", { name: "Done" }).click();
   await panel.getByRole("button", { name: "Save" }).click();
-  const popMacro = (await storage("macros")).macros.create;
+  const popMacro = (await storage("macros")).macros.make.create;
   check(popMacro?.popup === true && popMacro?.host === "hallpass.goguardian.com", "pop-up: taught steps remember the Create Pass window", JSON.stringify({ host: popMacro?.host, popup: popMacro?.popup }));
   await until(async () => /Create Pass window is open/.test((await panelText("#hallpass")) ?? ""), "status names the pop-up");
 
@@ -299,11 +299,11 @@ try {
   await until(async () => /Create Pass window\s*✓ Helper can see it/.test((await guideText()) ?? ""), "guide lists the Create Pass window as seen");
   check(true, "guide: lists the Create Pass window once it's open");
 
-  // With the pop-up closed, its steps aren't tried in the main tab, and there's no Open button for it.
+  // With the pop-up closed, the helper falls back to the HallPass website it was also taught in.
   await popup.close();
-  await until(async () => /Create Pass window isn't open/.test((await panelText("#hallpass")) ?? ""), "status says the pop-up is closed");
-  check(await panel.locator("#openHallpass").isHidden(), "pop-up: no Open button (only the home screen can open it)");
-  await until(async () => /Create Pass window\s*Not open/.test((await guideText()) ?? ""), "guide lists the Create Pass window as closed");
+  await until(async () => /^\s*HallPass is open/.test((await panelText("#hallpass")) ?? ""), "status falls back to the HallPass website");
+  check(await panel.locator("#openHallpass").isHidden(), "fallback: nothing to open, the HallPass website is ready");
+  await until(async () => /Create Pass window\s*Not open · taught/.test((await guideText()) ?? ""), "guide lists the Create Pass window as closed but taught");
   check(/Help and setup guide/.test((await guideText()) ?? ""), "guide: folds itself away once everything is set up");
 
   check(errors.length === 0, "no console errors", errors.join("\n     "));

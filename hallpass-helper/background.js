@@ -3,6 +3,7 @@
 // one thing at a time, so the queue, the timers and the Back button never trip over each other.
 import { loadSettings, saveSettings } from "./lib/storage.js";
 import { capitalize, goGuardianTab, hostOf, siteName, taughtPlace } from "./lib/tabs.js";
+import { SEND_ORDER, kindOfMacro, makeMethods, method, methodPlace } from "./lib/methods.js";
 import { dueToEnd, endsAt, nextToSend } from "./lib/queue.js";
 
 const WATCHED = ["queue", "queuePaused", "outPasses", "maxOut", "autoEndMinutes", "macros"];
@@ -56,8 +57,9 @@ async function look() {
   // End first, so a pass that's up frees its spot before the next student goes.
   for (const pass of dueToEnd(s)) await endPass(pass.id);
   s = await loadSettings();
+  s = await saveMethods(s);
   const next = nextToSend(s);
-  if (next && s.macros.create) await send(next);
+  if (next && Object.keys(makeMethods(s.macros)).length) await send(next);
   // A note like "Open HallPass so Ava can go" is stale once no one is waiting to go.
   else if (!next && !s.queuePaused && s.queueProblem) await saveSettings({ queueProblem: "" });
 }
@@ -112,16 +114,43 @@ function stuckText(result, name) {
   }
 }
 
+// A single "create" taught before there were several ways to make a pass moves into macros.make,
+// where the page it's replayed on looks it up by kind.
+async function saveMethods(s) {
+  const create = s.macros.create;
+  if (!create || s.macros.make?.[kindOfMacro(create)]) return s;
+  await saveSettings({ macros: { ...s.macros, make: makeMethods(s.macros) } });
+  return loadSettings();
+}
+
+// The first taught way to make a pass whose page is open, and a name for what to tell the teacher.
+async function openMethod(methods) {
+  const taught = SEND_ORDER.filter((kind) => methods[kind]);
+  let stale = null;
+  for (const kind of taught) {
+    const place = methodPlace(kind, methods[kind]);
+    const tab = await goGuardianTab(place);
+    if (!tab) continue;
+    const pong = await chrome.tabs.sendMessage(tab.id, { type: "ping" }).catch(() => null);
+    if (pong?.ok) return { kind, tab, name: siteName(place) };
+    stale ??= { kind, name: siteName(place) };
+  }
+  return { taught, stale };
+}
+
 async function send(entry) {
   const { macros } = await loadSettings();
-  const place = taughtPlace(macros.create);
-  const name = siteName(place);
-  const tab = await goGuardianTab(place);
-  if (!tab) {
-    await saveSettings({ queueProblem: `Open ${name} so ${entry.label} can go.` });
+  const methods = makeMethods(macros);
+  const found = await openMethod(methods);
+  if (!found.tab) {
+    const problem = found.stale
+      ? `Reload ${found.stale.name} so ${entry.label} can go.`
+      : `Open ${found.taught.map((k) => method(k).name).join(" or ")} so ${entry.label} can go.`;
+    await saveSettings({ queueProblem: problem });
     return;
   }
-  const result = await inTab(tab, { type: "make-pass", student: entry.student, destination: entry.destination });
+  const { tab, name, kind } = found;
+  const result = await inTab(tab, { type: "make-pass", method: kind, student: entry.student, destination: entry.destination });
   if (TRY_LATER.has(result?.reason)) return;
   if (!result?.ok) {
     const why = stuckText(result, name);

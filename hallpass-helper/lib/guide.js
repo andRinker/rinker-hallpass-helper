@@ -1,5 +1,6 @@
 // The setup guide in the side panel: which GoGuardian pages the helper can see, and the next thing
 // to do. Pure, so it can be tested without a browser.
+import { METHODS, makeMethods } from "./methods.js";
 
 export const PAGES = [
   { key: "hallpass", label: "HallPass website", how: "Open HallPass in a browser tab." },
@@ -14,6 +15,8 @@ export function guide({ settings, pages, teaching = false }) {
   const { macros = {}, destinations = [], school = "", teacherName = "", queue = [], outPasses = [] } = settings;
   const seen = open(pages);
   const stale = seen.filter((p) => pages[p.key] === "stale");
+  const taught = makeMethods(macros);
+  const untaught = METHODS.filter((m) => !taught[m.kind]);
 
   const steps = [
     {
@@ -23,7 +26,7 @@ export function guide({ settings, pages, teaching = false }) {
       lines: [
         "GoGuardian has three places to make a pass. The helper works in any of them:",
         ...PAGES.map((p) => `${p.label}: ${p.how}`),
-        "Use the one you normally use. You only teach the helper in that one.",
+        "Teach the helper each way you make passes. It then uses whichever taught page is open.",
         ...stale.map((p) => `Reload the ${p.label}. The helper can't see it yet.`),
       ],
     },
@@ -40,20 +43,18 @@ export function guide({ settings, pages, teaching = false }) {
     {
       id: "make",
       title: "Teach it to make a pass",
-      done: Boolean(macros.create),
+      done: Object.keys(taught).length > 0,
       lines: teaching
         ? [
-            "The helper is watching. Make one real pass in GoGuardian now, the way you always do.",
+            "The helper is watching. Make one real pass on the page named at the top of the Teach card, the way you always do.",
             "Go all the way through clicking Create.",
             "Then click Done below, check the guesses and Save.",
           ]
         : [
-            "Click Teach: make a pass below.",
-            "Make one real pass the way you always do, all the way through clicking Create. It makes a real pass, and you can end it right after.",
-            "Click Done, check the guesses and Save.",
-            ...(pages.create === "closed" && pages.home !== "closed"
-              ? ["To teach in the Create Pass window, click Create Pass on the home screen first so the window is open."]
-              : []),
+            "The Teach card below has one button for each way a pass is made. Each button names the page it watches.",
+            ...untaught.map((m) => `Teach: ${m.name} — ${m.use}`),
+            "Open that page first, click its Teach button, then make one real pass all the way through Create. You can end it right after.",
+            "Click Done, check the guesses and Save. Then do the next way you use, if any.",
           ],
     },
     {
@@ -82,6 +83,6 @@ export function guide({ settings, pages, teaching = false }) {
     current,
     doneCount: steps.filter((s) => s.done).length,
     complete: current === -1,
-    pages: PAGES.map((p) => ({ ...p, state: pages[p.key] })),
+    pages: PAGES.map((p) => ({ ...p, state: pages[p.key], taught: Boolean(taught[p.key]) })),
   };
 }

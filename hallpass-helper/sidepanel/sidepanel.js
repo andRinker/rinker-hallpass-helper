@@ -1,6 +1,7 @@
 import { HALLPASS_URL, loadSettings, saveSettings } from "../lib/storage.js";
 import { alreadyListed, queueEntry, studentFromText, suggestions } from "../lib/queue.js";
-import { allGoGuardianTabs, capitalize, hostOf, taughtPlace } from "../lib/tabs.js";
+import { allGoGuardianTabs, capitalize, hostOf } from "../lib/tabs.js";
+import { SEND_ORDER, makeMethods, method, methodPlace } from "../lib/methods.js";
 import { $, askHallPass, hallpassTab, h, toast } from "./shared.js";
 import { renderGuide } from "./guide.js";
 import { initTeach, renderTeach } from "./teach.js";
@@ -78,7 +79,7 @@ function queueStatus() {
   const { macros, queue, outPasses, queuePaused, queueProblem, maxOut, autoEndMinutes } = settings;
   if (queueProblem) return { text: queueProblem, problem: true };
   if (queuePaused) return { text: "Paused. No one is sent until you resume." };
-  if (!macros.create) return { text: "Teach the helper to make a pass first. Students wait here until then." };
+  if (!Object.keys(makeMethods(macros)).length) return { text: "Teach the helper to make a pass first. Students wait here until then." };
   const pace = maxOut === 1 ? "one at a time" : `${maxOut} at a time`;
   if (!queue.length) return { text: `Add students and the helper sends them to HallPass ${pace}.` };
   if (outPasses.length < maxOut) return { text: `Sending ${queue[0].label}…` };
@@ -149,19 +150,39 @@ $("pause").addEventListener("click", async () => {
 
 // --- HallPass status and the outline ---
 
+// Checks every page the helper was taught to make passes on. Ready beats reload beats closed.
+async function taughtPages() {
+  const taught = makeMethods(settings?.macros);
+  const kinds = SEND_ORDER.filter((k) => taught[k]);
+  const pages = [];
+  for (const kind of kinds) {
+    const place = methodPlace(kind, taught[kind]);
+    pages.push({ kind, place, ...(await hallpassTab(place)) });
+  }
+  // Nothing taught yet: report on whatever GoGuardian page is open.
+  if (!pages.length) pages.push({ kind: "hallpass", place: {}, ...(await hallpassTab()) });
+  return pages;
+}
+
 async function renderHallPass() {
-  const place = taughtPlace(settings?.macros.create);
-  const { state, name } = await hallpassTab(place);
+  const pages = await taughtPages();
+  const best = pages.find((p) => p.state === "ready") ?? pages.find((p) => p.state === "stale") ?? pages[0];
+  const names = pages.map((p) => method(p.kind).name);
+  const state = best?.state ?? "closed";
+  const openable = pages.filter((p) => p.kind !== "create");
   const messages = {
-    ready: `${capitalize(name)} is open.`,
-    stale: `Reload ${name} so the helper can see it.`,
+    ready: `${best?.name ? capitalize(best.name) : "HallPass"} is open.`,
+    stale: `Reload ${best?.name} so the helper can see it.`,
     // The Create Pass window can only be opened from the GoGuardian home screen, so there's no button for it.
-    closed: `${capitalize(name)} isn't open. ${place?.popup ? "Click Create Pass on the GoGuardian home screen. " : ""}The queue waits until it is.`,
+    closed: names.length
+      ? `${names.length > 1 ? `None of ${names.join(", ")} is` : `${capitalize(best.name)} isn't`} open. ${pages.some((p) => p.kind === "create") ? "Click Create Pass on the GoGuardian home screen, or open a taught page. " : ""}The queue waits until one is.`
+      : "HallPass isn't open. The queue waits until it is.",
   };
+  const target = state === "stale" ? best : openable[0];
   $("hallpass").dataset.state = state;
   $("hallpass").querySelector(".text").textContent = messages[state];
-  $("openHallpass").hidden = state === "ready" || (state === "closed" && !!place?.popup);
-  $("openHallpass").textContent = state === "stale" ? "Reload it" : `Open ${name}`;
+  $("openHallpass").hidden = state === "ready" || !target;
+  $("openHallpass").textContent = state === "stale" ? "Reload it" : `Open ${target?.name ?? "HallPass"}`;
   renderGuide(settings, $("teach").dataset.mode === "recording");
 }
 
@@ -191,10 +212,13 @@ async function showOutline() {
 $("settings").addEventListener("click", () => chrome.runtime.openOptionsPage());
 // Reloads or opens the same site the status line is talking about: the one the steps were taught on.
 $("openHallpass").addEventListener("click", async () => {
-  const place = taughtPlace(settings?.macros.create);
-  const { state, tab } = await hallpassTab(place);
-  if (state === "stale") chrome.tabs.reload(tab.id);
-  else chrome.tabs.create({ url: place ? `https://${place.host}/` : HALLPASS_URL, pinned: true });
+  const pages = await taughtPages();
+  const stale = pages.find((p) => p.state === "stale");
+  if (stale) chrome.tabs.reload(stale.tab.id);
+  else {
+    const page = pages.find((p) => p.kind !== "create");
+    chrome.tabs.create({ url: page?.place.host ? `https://${page.place.host}/` : HALLPASS_URL, pinned: true });
+  }
 });
 $("outlineButton").addEventListener("click", showOutline);
 $("closeOutline").addEventListener("click", () => ($("outlineBox").hidden = true));

@@ -34,7 +34,7 @@ export async function renderGuide(settings, teaching) {
     h(
       "ul",
       { class: "guide-pages" },
-      g.pages.map((p) => h("li", { "data-state": p.state }, h("strong", {}, p.label), h("span", {}, PAGE_STATE[p.state]))),
+      g.pages.map((p) => h("li", { "data-state": p.state }, h("strong", {}, p.label), h("span", {}, PAGE_STATE[p.state] + (p.taught ? " · taught" : "")))),
     ),
     h("h3", {}, g.complete ? "All set up" : `Setup: ${g.doneCount} of ${g.steps.length} done`),
     h(

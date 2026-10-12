@@ -52,3 +52,11 @@ test("siteName calls the pop-up the Create Pass window and everything but HallPa
   assert.equal(siteName({ host: "teacher.goguardian.com" }), "GoGuardian");
   assert.equal(siteName({ host: "hallpass.goguardian.com", popup: true }), "the Create Pass window");
 });
+
+test("pickTab by kind finds that page, and siteName names it", () => {
+  assert.equal(pickTab(withPopup, { kind: "create" }, popups).id, 5);
+  assert.equal(pickTab(withPopup, { kind: "hallpass", host: "hallpass.goguardian.com" }, popups).id, 1);
+  assert.equal(pickTab(withPopup, { kind: "home", host: "teacher.goguardian.com" }, popups).id, 2);
+  assert.equal(pickTab(withPopup, { kind: "home", host: "other.goguardian.com" }, popups), null);
+  assert.equal(siteName({ kind: "create" }), "the Create Pass window");
+});

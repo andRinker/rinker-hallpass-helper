@@ -32,11 +32,14 @@ test("steps are ticked off in order as things get set up", () => {
   assert.equal(g.doneCount, 5);
 });
 
-test("the make-a-pass step points at the Create Pass window when only the home screen is open", () => {
+test("the make-a-pass step lists the ways not taught yet, and counts any taught way as done", () => {
   const g = guide({ settings, pages: { ...closed, home: "ready" } });
-  assert.ok(g.steps[2].lines.some((l) => /click Create Pass on the home screen first/.test(l)));
-  const open = guide({ settings, pages: { ...closed, home: "ready", create: "ready" } });
-  assert.ok(!open.steps[2].lines.some((l) => /home screen first/.test(l)));
+  assert.ok(g.steps[2].lines.some((l) => /^Teach: Create Pass window/.test(l)));
+  const some = guide({ settings: { ...settings, macros: { make: { create: {} } } }, pages: closed });
+  assert.equal(some.steps[2].done, true);
+  assert.ok(!some.steps[2].lines.some((l) => /^Teach: Create Pass window/.test(l)));
+  assert.equal(some.pages.find((p) => p.key === "create").taught, true);
+  assert.equal(some.pages.find((p) => p.key === "home").taught, false);
 });
 
 test("while teaching, the steps say the helper is watching", () => {

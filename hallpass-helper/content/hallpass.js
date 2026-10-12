@@ -18,11 +18,12 @@
     "teach-status": async () => ({ ok: true, ...HPH.recordingStatus() }),
     "teach-stop": async () => ({ ok: true, ...HPH.stopRecording() }),
     // Makes the pass all the way through the final button.
-    "make-pass": async ({ student, destination }) => {
+    "make-pass": async ({ student, destination, method }) => {
       if (teaching()) return { ok: false, reason: "teaching" };
-      const { create } = await getMacros();
-      if (!create) return { ok: false, reason: "not-taught" };
-      return HPH.runMacro(create, { student, destination });
+      const { create, make } = await getMacros();
+      const macro = method ? make?.[method] : create;
+      if (!macro) return { ok: false, reason: "not-taught" };
+      return HPH.runMacro(macro, { student, destination });
     },
     "end-pass": async ({ student }) => {
       if (teaching()) return { ok: false, reason: "teaching" };

@@ -392,3 +392,16 @@ header h1 {
   gap: 4px;
   font-weight: 400;
 }
+
+.teach .method {
+  border: 1px solid var(--line, #ccd);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin: 8px 0;
+}
+.teach .method[data-taught="yes"] strong {
+  color: var(--ok, #1a7f37);
+}
+.teach .method .hint {
+  margin: 4px 0 6px;
+}
