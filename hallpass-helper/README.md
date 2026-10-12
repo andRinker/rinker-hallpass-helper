@@ -27,7 +27,7 @@ The helper doesn't come knowing HallPass's screens. **You teach it once**: make 
 1. **Get the files:** on the repo's GitHub page, click **Code → Download ZIP**. You can do this at school, or at home and then email or Drive the .zip to your school account. There's no student data in it.
 2. **Unzip it:** right-click the .zip and choose **Extract All**. Chrome can't load an extension from inside a .zip.
 3. **Load it:** go to `chrome://extensions`, turn on **Developer mode** (top right), and click **Load unpacked**. Open the extracted folder and keep going until you reach the folder named **`hallpass-helper`**: the one with `manifest.json` directly inside it. Choose that folder.
-   - On Windows the path usually looks like `Downloads\rinker-hallpass-helper-master\rinker-hallpass-helper-master\hallpass-helper`.
+   - On Windows the path usually looks like `Downloads\rinker-hallpass-helper-tester\rinker-hallpass-helper-tester\hallpass-helper` (the middle part is the name of the branch you downloaded, such as `tester` or `stable`).
    - If Chrome says **"Manifest file is missing or unreadable"**, you chose a folder above `hallpass-helper`. Go one level deeper.
 4. Pin the extension, click its icon to open the side panel, and click **Settings**. Fill in:
    - your school, name, room and destinations, exactly as HallPass shows them
