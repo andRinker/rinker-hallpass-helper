@@ -357,6 +357,12 @@ try {
   await panel.getByLabel("Use HallPass website").check();
   await until(async () => /^\s*HallPass is open/.test((await panelText("#hallpass")) ?? ""), "status follows the lane switch");
   await panel.getByLabel("Use Home screen → Create Pass window").check();
+  // Copy taught setup: everything taught, page steps only.
+  await panel.click("#setupButton");
+  const setup = await panel.inputValue("#outlineText");
+  check(/hallpass-helper-taught-setup/.test(setup) && /"makePass"/.test(setup) && /"opener"/.test(setup) && /"endPass"/.test(setup), "setup export: lists making, the opener and ending");
+  check(!/jordan|miller/i.test(setup), "setup export: no student names", setup.slice(0, 200));
+  await panel.click("#closeOutline");
   check(/Help and setup guide/.test((await guideText()) ?? ""), "guide: folds itself away once everything is set up");
 
   check(errors.length === 0, "no console errors", errors.join("\n     "));

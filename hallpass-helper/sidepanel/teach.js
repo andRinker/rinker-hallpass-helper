@@ -286,6 +286,9 @@ function idleView() {
         ),
       ),
     ),
+    any || Object.keys(endTaught).length
+      ? h("button", { class: "link", type: "button", onclick: () => document.dispatchEvent(new Event("show-setup")) }, "Copy taught setup")
+      : null,
   ];
 }
 

@@ -3,6 +3,7 @@ import { alreadyListed, queueEntry, studentFromText, suggestions } from "../lib/
 import { allGoGuardianTabs, capitalize, hostOf } from "../lib/tabs.js";
 import { METHODS, SEND_ORDER, chosenLane, endMethods, makeMethods, method, methodPlace, openerPlace } from "../lib/methods.js";
 import { $, askHallPass, hallpassTab, h, toast } from "./shared.js";
+import { taughtSetup } from "../lib/export.js";
 import { renderGuide } from "./guide.js";
 import { initTeach, renderTeach } from "./teach.js";
 import { initWhosOut, renderWhosOut } from "./whos-out.js";
@@ -247,11 +248,25 @@ $("openHallpass").addEventListener("click", async () => {
     chrome.tabs.create({ url: host ? `https://${host}/` : HALLPASS_URL, pinned: true });
   }
 });
-$("outlineButton").addEventListener("click", showOutline);
+const OUTLINE_HINT = $("outlineHint").textContent;
+$("outlineButton").addEventListener("click", () => {
+  $("outlineHint").textContent = OUTLINE_HINT;
+  showOutline();
+});
+// Everything the helper was taught, as text for Claude. Page steps only; names are hidden.
+function showSetup() {
+  const taught = taughtSetup(settings, globalThis.HallPassHelper.redact, chrome.runtime.getManifest().version_name ?? "");
+  $("outlineHint").textContent = 'This is everything you taught: page steps only. Student and staff names show up as "Xxxxx". Look it over, click Copy, and paste it into your chat with Claude.';
+  $("outlineText").value = taught;
+  $("outlineBox").hidden = false;
+  $("outlineBox").scrollIntoView?.({ block: "nearest" });
+}
+$("setupButton").addEventListener("click", showSetup);
+document.addEventListener("show-setup", showSetup);
 $("closeOutline").addEventListener("click", () => ($("outlineBox").hidden = true));
 $("copyOutline").addEventListener("click", async () => {
   await navigator.clipboard.writeText($("outlineText").value);
-  toast("Copied. Paste it into an email or doc to yourself, then into your chat with Claude.");
+  toast("Copied. Paste it into your chat with Claude.");
 });
 
 chrome.storage.onChanged.addListener(refresh);
