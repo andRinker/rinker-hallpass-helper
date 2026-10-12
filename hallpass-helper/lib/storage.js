@@ -15,6 +15,8 @@ export const DEFAULTS = {
   autoEndMinutes: 7,
   // Taught steps: { create: { steps, taughtAt, host }, end: { steps, taughtAt, host } }
   macros: {},
+  // Which way passes are made AND ended: "hallpass" or "create" (home screen -> pop-up). Empty: the first one taught.
+  lane: "",
   // Students waiting their turn, in order: [{ id, student, label, destination, addedAt }]
   queue: [],
   queuePaused: false,

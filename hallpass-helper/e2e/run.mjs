@@ -294,12 +294,17 @@ try {
   const popMacro = (await storage("macros")).macros.make.create;
   check(popMacro?.popup === true && popMacro?.host === "hallpass.goguardian.com", "pop-up: taught steps remember the Create Pass window", JSON.stringify({ host: popMacro?.host, popup: popMacro?.popup }));
   check(popMacro?.opener?.steps.length === 1 && popMacro.opener.host === "teacher.goguardian.com", "two-part: remembers how the home screen opens the window", JSON.stringify(popMacro?.opener));
+  check(await panel.getByLabel("Use HallPass website").isChecked(), "lane: starts on the first way taught");
+  await panel.getByLabel("Use Home screen → Create Pass window").check();
   await until(async () => /Create Pass window is open/.test((await panelText("#hallpass")) ?? ""), "status names the pop-up");
 
   // The queue sends into the pop-up, not the main HallPass tab; ending still happens in the main tab.
   await outIs("Jordan Mi.");
+  // Ending was only taught on the HallPass website, so that's the lane to end in; there is no automatic switching.
+  await panel.getByLabel("Use HallPass website").check();
   await backdate(8);
   await until(async () => (await mockPasses(hp)).length === 0, "Jordan Mi. ended in the main HallPass tab", 30000);
+  await panel.getByLabel("Use Home screen → Create Pass window").check();
   await panel.click('#destinations button:text("Nurse")');
   await panel.fill("#addName", "ava lee");
   await panel.press("#addName", "Enter");
@@ -348,6 +353,10 @@ try {
   check((await panel.$$("#teach .steps li")).length === 8, "closing the window ends the recording and keeps all 8 steps");
   await panel.getByRole("button", { name: "Save" }).click();
   check((await storage("macros")).macros.make.create.steps.length === 8, "the steps taught before closing the window are saved");
+  // The lane switch: with HallPass chosen, the status talks only about the HallPass website.
+  await panel.getByLabel("Use HallPass website").check();
+  await until(async () => /^\s*HallPass is open/.test((await panelText("#hallpass")) ?? ""), "status follows the lane switch");
+  await panel.getByLabel("Use Home screen → Create Pass window").check();
   check(/Help and setup guide/.test((await guideText()) ?? ""), "guide: folds itself away once everything is set up");
 
   check(errors.length === 0, "no console errors", errors.join("\n     "));

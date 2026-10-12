@@ -405,3 +405,18 @@ header h1 {
 .teach .method .hint {
   margin: 4px 0 6px;
 }
+
+.lane {
+  margin: 8px 0;
+}
+.lane .lane-title {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.lane label {
+  display: block;
+  padding: 4px 0;
+}
+.lane .hint {
+  margin: 2px 0 0;
+}

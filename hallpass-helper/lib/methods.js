@@ -77,3 +77,10 @@ export const methodPlace = (kind, macro) => ({
 
 // The home screen page whose Create Pass button opens the window, if the helper was taught to click it.
 export const openerPlace = (macro) => (macro?.opener ? { kind: "home", host: macro.opener.host } : null);
+
+// The one way the helper makes and ends passes right now. It never switches by itself: the teacher picks it.
+export function chosenLane(settings) {
+  const taught = { ...makeMethods(settings?.macros), ...endMethods(settings?.macros) };
+  if (settings?.lane && METHODS.some((m) => m.kind === settings.lane)) return settings.lane;
+  return END_ORDER.find((k) => taught[k]) ?? "hallpass";
+}

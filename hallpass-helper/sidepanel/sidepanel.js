@@ -1,7 +1,7 @@
 import { HALLPASS_URL, loadSettings, saveSettings } from "../lib/storage.js";
 import { alreadyListed, queueEntry, studentFromText, suggestions } from "../lib/queue.js";
 import { allGoGuardianTabs, capitalize, hostOf } from "../lib/tabs.js";
-import { SEND_ORDER, makeMethods, method, methodPlace, openerPlace } from "../lib/methods.js";
+import { METHODS, SEND_ORDER, chosenLane, endMethods, makeMethods, method, methodPlace, openerPlace } from "../lib/methods.js";
 import { $, askHallPass, hallpassTab, h, toast } from "./shared.js";
 import { renderGuide } from "./guide.js";
 import { initTeach, renderTeach } from "./teach.js";
@@ -20,6 +20,7 @@ async function refresh() {
   renderQueue();
   renderTeach();
   renderWhosOut();
+  renderLane();
   renderHallPass();
 }
 
@@ -79,7 +80,7 @@ function queueStatus() {
   const { macros, queue, outPasses, queuePaused, queueProblem, maxOut, autoEndMinutes } = settings;
   if (queueProblem) return { text: queueProblem, problem: true };
   if (queuePaused) return { text: "Paused. No one is sent until you resume." };
-  if (!Object.keys(makeMethods(macros)).length) return { text: "Teach the helper to make a pass first. Students wait here until then." };
+  if (!makeMethods(macros)[chosenLane(settings)]) return { text: "Teach the helper to make a pass first. Students wait here until then." };
   const pace = maxOut === 1 ? "one at a time" : `${maxOut} at a time`;
   if (!queue.length) return { text: `Add students and the helper sends them to HallPass ${pace}.` };
   if (outPasses.length < maxOut) return { text: `Sending ${queue[0].label}…` };
@@ -150,10 +151,28 @@ $("pause").addEventListener("click", async () => {
 
 // --- HallPass status and the outline ---
 
+// The lane switch: the helper makes and ends passes one way at a time, the way picked here.
+function renderLane() {
+  const lane = chosenLane(settings);
+  const made = makeMethods(settings.macros);
+  const ended = endMethods(settings.macros);
+  $("lane").replaceChildren(
+    h("div", { class: "lane-title" }, "Make and end passes through:"),
+    ...METHODS.map((m) => {
+      const input = h("input", { type: "radio", name: "lane", value: m.kind, "aria-label": `Use ${m.short}` });
+      input.checked = lane === m.kind;
+      input.addEventListener("change", () => saveSettings({ lane: m.kind, queueProblem: "" }));
+      const missing = [made[m.kind] ? null : "making", ended[m.kind] ? null : "ending"].filter(Boolean);
+      return h("label", {}, input, ` ${m.short}`, missing.length ? h("div", { class: "hint" }, `Not taught yet: ${missing.join(" and ")}`) : null);
+    }),
+    h("p", { class: "hint" }, "The helper uses only this way and never switches by itself."),
+  );
+}
+
 // Checks every page the helper was taught to make passes on. Ready beats reload beats closed.
 async function taughtPages() {
   const taught = makeMethods(settings?.macros);
-  const kinds = SEND_ORDER.filter((k) => taught[k]);
+  const kinds = SEND_ORDER.filter((k) => taught[k] && k === chosenLane(settings));
   const pages = [];
   for (const kind of kinds) {
     const place = methodPlace(kind, taught[kind]);

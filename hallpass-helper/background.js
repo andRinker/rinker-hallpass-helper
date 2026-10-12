@@ -3,7 +3,7 @@
 // one thing at a time, so the queue, the timers and the Back button never trip over each other.
 import { loadSettings, saveSettings } from "./lib/storage.js";
 import { capitalize, goGuardianTab, hostOf, siteName } from "./lib/tabs.js";
-import { END_ORDER, SEND_ORDER, endMethods, kindOfMacro, makeMethods, method, methodPlace, openerPlace } from "./lib/methods.js";
+import { END_ORDER, SEND_ORDER, chosenLane, endMethods, kindOfMacro, makeMethods, method, methodPlace, openerPlace } from "./lib/methods.js";
 import { dueToEnd, endsAt, nextToSend } from "./lib/queue.js";
 
 const WATCHED = ["queue", "queuePaused", "outPasses", "maxOut", "autoEndMinutes", "macros"];
@@ -123,6 +123,8 @@ async function saveMethods(s) {
   return loadSettings();
 }
 
+const pick = (all, kind) => (all[kind] ? { [kind]: all[kind] } : {});
+
 async function readyTab(place) {
   const tab = await goGuardianTab(place);
   if (!tab) return { state: "closed" };
@@ -168,8 +170,14 @@ async function openCreateWindow(homeTab, name, message) {
 }
 
 async function send(entry) {
-  const { macros } = await loadSettings();
-  const methods = makeMethods(macros);
+  const settings = await loadSettings();
+  // Only the chosen lane is used: the helper never moves to the other way by itself.
+  const lane = chosenLane(settings);
+  const methods = pick(makeMethods(settings.macros), lane);
+  if (!methods[lane]) {
+    await saveSettings({ queueProblem: `The helper hasn't been taught ${method(lane).name} yet. Teach it, or switch to the other way.` });
+    return;
+  }
   const found = await openMethod(methods);
   if (!found.tab && !found.opener) {
     const problem = found.stale
@@ -224,15 +232,18 @@ async function markFailed(pass, why) {
 
 // Ends a pass in HallPass. Time's up unless `manual` (the teacher pressed Back).
 async function endPass(id, { manual = false } = {}) {
-  const { outPasses, macros, autoEndMinutes } = await loadSettings();
+  const settings = await loadSettings();
+  const { outPasses, macros, autoEndMinutes } = settings;
   const pass = outPasses.find((p) => p.id === id);
   if (!pass) return { ok: true };
+  const lane = chosenLane(settings);
   const timesUp = `${pass.label}'s ${autoEndMinutes} minutes are up`;
-  const methods = endMethods(macros);
-  if (!Object.keys(methods).length) {
+  const methods = pick(endMethods(macros), lane);
+  if (!methods[lane]) {
+    const need = Object.keys(endMethods(macros)).length ? `It only knows how to end a pass the other way. Switch ways, or teach ending ${method(lane).end.label}.` : "Teach the helper how you end a pass.";
     if (!manual) {
-      await markFailed(pass, "Teach the helper how to end a pass.");
-      notify("Pass not ended", `${timesUp}. Teach the helper how you end a pass so it can do it for you.`);
+      await markFailed(pass, need);
+      notify("Pass not ended", `${timesUp}. ${need}`);
     }
     return { ok: false, reason: "no-end-macro" };
   }

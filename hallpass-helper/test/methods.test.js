@@ -39,3 +39,12 @@ test("ending has the same two ways, and an older single end macro is sorted by w
   assert.equal(endMethods({ end: { popup: true }, endVia: { create: newer } }).create, newer);
   for (const m of METHODS) assert.ok(m.end.label && m.end.steps.length);
 });
+
+test("the lane is the one the teacher picked, else the first way taught, and never both", async () => {
+  const { chosenLane } = await import("../lib/methods.js");
+  assert.equal(chosenLane({}), "hallpass");
+  assert.equal(chosenLane({ macros: { make: { create: {} } } }), "create");
+  assert.equal(chosenLane({ macros: { make: { create: {}, hallpass: {} } } }), "hallpass");
+  assert.equal(chosenLane({ lane: "create", macros: { make: { hallpass: {} } } }), "create");
+  assert.equal(chosenLane({ lane: "home" }), "hallpass");
+});
