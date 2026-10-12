@@ -31,7 +31,7 @@ const ctx = await chromium.launchPersistentContext("", {
   channel: "chromium",
   executablePath: process.env.CHROMIUM_PATH,
   headless: true,
-  args: [`--disable-extensions-except=${extDir}`, `--load-extension=${extDir}`],
+  args: [`--disable-extensions-except=${extDir}`, `--load-extension=${extDir}`, "--disable-popup-blocking"],
   viewport: { width: 1100, height: 800 },
 });
 const errors = [];
@@ -43,6 +43,13 @@ const watch = (page, name) => {
 try {
   await ctx.route("https://*.goguardian.com/**", (route) =>
     route.fulfill({ contentType: "text/html", body: mockHtml }),
+  );
+  // The GoGuardian home screen has a Create Pass button that opens the Create Pass window.
+  await ctx.route("https://teacher.goguardian.com/classrooms/active", (route) =>
+    route.fulfill({
+      contentType: "text/html",
+      body: `<!doctype html><title>Home</title><button id="openCreate">Create Pass</button><script>document.getElementById("openCreate").onclick = () => window.open("https://hallpass.goguardian.com/window/passes/create", "createpass", "popup,width=520,height=760");</script>`,
+    }),
   );
   const ours = (w) => w.url().endsWith("/background.js");
   const sw = ctx.serviceWorkers().find(ours) ?? (await ctx.waitForEvent("serviceworker", { predicate: ours }));
@@ -96,7 +103,7 @@ try {
   await until(async () => /HallPass website\s*✓ Helper can see it/.test((await guideText()) ?? ""), "guide lists HallPass as seen");
   const guideNow = (await guideText()) ?? "";
   check(
-    /Create Pass window\s*Not open/.test(guideNow) && /Setup: 2 of 5 done/.test(guideNow) && /Teach: Create Pass window/.test(guideNow),
+    /Create Pass window\s*Not open/.test(guideNow) && /Setup: 2 of 5 done/.test(guideNow) && /Teach: Home screen → Create Pass window/.test(guideNow),
     "guide: shows the pages it can see and the next step",
     guideNow.replace(/\s+/g, " ").slice(0, 300),
   );
@@ -256,20 +263,23 @@ try {
   }
   await hp.click("button.cancel");
 
-  // --- Create Pass window: a pop-up on the HallPass site, told apart from the main HallPass tab ---
-  await hp.bringToFront();
-  const [popup] = await Promise.all([
-    ctx.waitForEvent("page"),
-    hp.evaluate(() => window.open("https://hallpass.goguardian.com/s/passes/create", "createpass", "popup,width=520,height=760")),
-  ]);
-  watch(popup, "popup");
-  await until(() => popup.url().includes("/passes/create"), "the pop-up to load");
-  await popup.waitForSelector("#newPass");
-  await panel.click("#outlineButton");
-  await until(async () => /Page 1 of 2/.test(await panel.inputValue("#outlineText")), "outline of both windows");
-  check(/pop-up window/.test(await panel.inputValue("#outlineText")), "outline: labels the pop-up window");
-  await panel.getByRole("button", { name: "Teach: Create Pass window" }).click();
+  // --- Create Pass window: opened from the GoGuardian home screen, in a pop-up on the HallPass site ---
+  const home2 = await ctx.newPage();
+  watch(home2, "home2");
+  await home2.goto("https://teacher.goguardian.com/classrooms/active");
+  await home2.bringToFront();
+  await panel.getByRole("button", { name: "Teach: Home screen → Create Pass window" }).click();
   await panel.waitForSelector('#teach[data-mode="recording"]');
+  check(/part 1 of 2/.test(await panelText("#teach")), "two-part: part 1 watches the home screen");
+  const [popup] = await Promise.all([ctx.waitForEvent("page"), home2.click("#openCreate")]);
+  watch(popup, "popup");
+  await until(() => popup.url().includes("/window/passes/create"), "the pop-up to load");
+  await popup.waitForSelector("#newPass");
+  await until(async () => /part 2 of 2/.test((await panelText("#teach")) ?? ""), "part 2 starts when the window opens");
+  check(true, "two-part: part 2 started by itself when the window opened");
+  await panel.click("#outlineButton");
+  await until(async () => /Page \d of \d/.test(await panel.inputValue("#outlineText")), "outline of the open windows");
+  check(/pop-up window/.test(await panel.inputValue("#outlineText")), "outline: labels the pop-up window");
   await popup.click("#newPass");
   await popup.click('[role=combobox][aria-label="Site"]');
   await popup.click('[role=option]:text("Middle School South")');
@@ -283,6 +293,7 @@ try {
   await panel.getByRole("button", { name: "Save" }).click();
   const popMacro = (await storage("macros")).macros.make.create;
   check(popMacro?.popup === true && popMacro?.host === "hallpass.goguardian.com", "pop-up: taught steps remember the Create Pass window", JSON.stringify({ host: popMacro?.host, popup: popMacro?.popup }));
+  check(popMacro?.opener?.steps.length === 1 && popMacro.opener.host === "teacher.goguardian.com", "two-part: remembers how the home screen opens the window", JSON.stringify(popMacro?.opener));
   await until(async () => /Create Pass window is open/.test((await panelText("#hallpass")) ?? ""), "status names the pop-up");
 
   // The queue sends into the pop-up, not the main HallPass tab; ending still happens in the main tab.
@@ -299,11 +310,18 @@ try {
   await until(async () => /Create Pass window\s*✓ Helper can see it/.test((await guideText()) ?? ""), "guide lists the Create Pass window as seen");
   check(true, "guide: lists the Create Pass window once it's open");
 
-  // With the pop-up closed, the helper falls back to the HallPass website it was also taught in.
-  await popup.close();
-  await until(async () => /^\s*HallPass is open/.test((await panelText("#hallpass")) ?? ""), "status falls back to the HallPass website");
-  check(await panel.locator("#openHallpass").isHidden(), "fallback: nothing to open, the HallPass website is ready");
-  await until(async () => /Create Pass window\s*Not open · taught/.test((await guideText()) ?? ""), "guide lists the Create Pass window as closed but taught");
+  // With the pop-up closed, the helper opens it from the home screen itself and makes the pass there.
+  await ctx.serviceWorkers()[0].evaluate(async () => {
+    for (const w of await chrome.windows.getAll()) if (w.type === "popup") await chrome.windows.remove(w.id);
+  });
+  await until(async () => !ctx.pages().some((p) => p.url().includes("/window/passes/create")), "the pop-up to be gone");
+  await until(async () => /^\s*GoGuardian is open/.test((await panelText("#hallpass")) ?? ""), "status says the home screen can open the window");
+  await ctx.serviceWorkers()[0].evaluate(() => chrome.storage.local.set({ outPasses: [] })); // Ava's pass lived in the window that just closed
+  await panel.fill("#addName", "ava lee");
+  await panel.press("#addName", "Enter");
+  const popup2 = await until(async () => ctx.pages().find((p) => p.url().includes("/window/passes/create")), "the helper opened the Create Pass window from the home screen", 30000);
+  await until(async () => (await mockPasses(popup2)).includes("Lee:Nurse"), "Ava sent in the window the helper opened", 30000);
+  await until(async () => /Create Pass window\s*✓ Helper can see it · taught/.test((await guideText()) ?? ""), "guide lists the Create Pass window as seen and taught");
   check(/Help and setup guide/.test((await guideText()) ?? ""), "guide: folds itself away once everything is set up");
 
   check(errors.length === 0, "no console errors", errors.join("\n     "));
@@ -311,6 +329,7 @@ try {
   failures++;
   console.log(`FAIL ${err.message}`);
   if (process.env.E2E_DEBUG) console.log(await ctx.serviceWorkers()[0]?.evaluate(() => chrome.storage.local.get(["queue", "outPasses", "queuePaused", "queueProblem"])).then(JSON.stringify).catch(String));
+  for (const p of ctx.pages()) console.log("PAGE", p.url(), await p.evaluate(() => JSON.stringify(window.__mock?.passes?.map((x) => x.student.last))).catch(String));
   if (errors.length) console.log(`     console errors:\n     ${errors.join("\n     ")}`);
 } finally {
   await ctx.close();

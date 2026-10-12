@@ -3,7 +3,7 @@
 // one thing at a time, so the queue, the timers and the Back button never trip over each other.
 import { loadSettings, saveSettings } from "./lib/storage.js";
 import { capitalize, goGuardianTab, hostOf, siteName, taughtPlace } from "./lib/tabs.js";
-import { SEND_ORDER, kindOfMacro, makeMethods, method, methodPlace } from "./lib/methods.js";
+import { SEND_ORDER, kindOfMacro, makeMethods, method, methodPlace, openerPlace } from "./lib/methods.js";
 import { dueToEnd, endsAt, nextToSend } from "./lib/queue.js";
 
 const WATCHED = ["queue", "queuePaused", "outPasses", "maxOut", "autoEndMinutes", "macros"];
@@ -123,34 +123,76 @@ async function saveMethods(s) {
   return loadSettings();
 }
 
+async function readyTab(place) {
+  const tab = await goGuardianTab(place);
+  if (!tab) return { state: "closed" };
+  const pong = await chrome.tabs.sendMessage(tab.id, { type: "ping" }).catch(() => null);
+  return { state: pong?.ok ? "ready" : "stale", tab };
+}
+
 // The first taught way to make a pass whose page is open, and a name for what to tell the teacher.
 async function openMethod(methods) {
   const taught = SEND_ORDER.filter((kind) => methods[kind]);
   let stale = null;
   for (const kind of taught) {
     const place = methodPlace(kind, methods[kind]);
-    const tab = await goGuardianTab(place);
-    if (!tab) continue;
-    const pong = await chrome.tabs.sendMessage(tab.id, { type: "ping" }).catch(() => null);
-    if (pong?.ok) return { kind, tab, name: siteName(place) };
-    stale ??= { kind, name: siteName(place) };
+    const page = await readyTab(place);
+    if (page.state === "ready") return { kind, tab: page.tab, name: siteName(place) };
+    if (page.state === "stale") stale ??= { kind, name: siteName(place) };
+    // The Create Pass window is closed: the home screen's Create Pass button can open it.
+    const opener = openerPlace(methods[kind]);
+    if (opener) {
+      const home = await readyTab(opener);
+      if (home.state === "ready") return { kind, name: siteName(place), opener: home.tab };
+      if (home.state === "stale") stale ??= { kind, name: siteName(opener) };
+    }
   }
   return { taught, stale };
+}
+
+// Clicks Create Pass on the home screen and waits for the window it opens.
+async function openCreateWindow(homeTab, macro, name) {
+  const result = await inTab(homeTab, { type: "run-opener" });
+  if (!result?.ok) return { ok: false, why: stuckText(result, "the GoGuardian home screen") };
+  for (let i = 0; i < 30; i++) {
+    const page = await readyTab({ kind: "create" });
+    if (page.state === "ready" && page.tab.status === "complete") {
+      // A new window can still reload as it starts up, so let it settle and check it again.
+      await new Promise((r) => setTimeout(r, 1500));
+      const again = await readyTab({ kind: "create" });
+      if (again.state === "ready" && again.tab.status === "complete") return { ok: true, tab: again.tab };
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  return { ok: false, why: `${capitalize(name)} didn't open after clicking Create Pass.` };
 }
 
 async function send(entry) {
   const { macros } = await loadSettings();
   const methods = makeMethods(macros);
   const found = await openMethod(methods);
-  if (!found.tab) {
+  if (!found.tab && !found.opener) {
     const problem = found.stale
       ? `Reload ${found.stale.name} so ${entry.label} can go.`
-      : `Open ${found.taught.map((k) => method(k).name).join(" or ")} so ${entry.label} can go.`;
+      : `Open ${found.taught.map((k) => method(k).where.split(",")[0]).join(" or ")} so ${entry.label} can go.`;
     await saveSettings({ queueProblem: problem });
     return;
   }
-  const { tab, name, kind } = found;
-  const result = await inTab(tab, { type: "make-pass", method: kind, student: entry.student, destination: entry.destination });
+  const { name, kind } = found;
+  let tab = found.tab;
+  if (found.opener) {
+    const opened = await openCreateWindow(found.opener, methods[kind], name);
+    if (!opened.ok) {
+      await saveSettings({ queuePaused: true, queueProblem: `${entry.label} wasn't sent. ${opened.why}` });
+      notify("Queue paused", `${entry.label} wasn't sent. ${opened.why}`);
+      return;
+    }
+    tab = opened.tab;
+  }
+  let result = await inTab(tab, { type: "make-pass", method: kind, student: entry.student, destination: entry.destination });
+  // The Create Pass window may close itself once the pass is made, which cuts the reply off. A window that's
+  // gone after no reply means it finished (a stuck step would have left it open).
+  if (!result && kind === "create" && (await readyTab({ kind: "create" })).state === "closed") result = { ok: true };
   if (TRY_LATER.has(result?.reason)) return;
   if (!result?.ok) {
     const why = stuckText(result, name);

@@ -2,36 +2,31 @@
 // teacher do it once, and uses whichever taught page is open.
 import { HALLPASS_HOST } from "./tabs.js";
 
-// `kind` matches the page kinds in tabs.js (pageKind).
+// There are two ways a pass is made. `kind` matches the page kinds in tabs.js (pageKind): the
+// second way starts on the GoGuardian home screen but the pass itself is made in the pop-up it opens.
 export const METHODS = [
   {
     kind: "hallpass",
     name: "HallPass website",
-    use: "You make passes on the HallPass website itself (hallpass.goguardian.com), in a normal browser tab.",
-    closed: "Open the HallPass website in a browser tab first.",
+    short: "HallPass website",
+    where: "hallpass.goguardian.com/home",
+    use: "You make passes on the HallPass website (hallpass.goguardian.com/home), in a normal browser tab.",
+    closed: "Open the HallPass website (hallpass.goguardian.com/home) in a browser tab first.",
     steps: [
-      "Look at your HallPass tab. Make one real pass there, the way you always do, for any student.",
+      "Stay on your HallPass tab. Make one real pass there, the way you always do, for any student.",
       "Go all the way through clicking Create.",
     ],
   },
   {
     kind: "create",
-    name: "Create Pass window",
-    use: "You click Create Pass on the GoGuardian home screen and a small window opens.",
-    closed: "Click Create Pass on the GoGuardian home screen first, so the Create Pass window is open.",
+    name: "GoGuardian home screen → Create Pass window",
+    short: "Home screen → Create Pass window",
+    where: "teacher.goguardian.com/classrooms/active, then the window it opens",
+    use: "You click Create Pass on the GoGuardian home screen (teacher.goguardian.com/classrooms/active) and a small window opens where you make the pass.",
+    closed: "Open the GoGuardian home screen (teacher.goguardian.com/classrooms/active) first, with the Create Pass window closed.",
     steps: [
-      "Look at the small Create Pass window. Make one real pass in it, the way you always do, for any student.",
-      "Go all the way through clicking Create.",
-    ],
-  },
-  {
-    kind: "home",
-    name: "GoGuardian home screen",
-    use: "You make a pass right on the GoGuardian home screen itself, not in the small Create Pass window.",
-    closed: "Open the GoGuardian home screen in a browser tab first.",
-    steps: [
-      "Look at the GoGuardian home screen tab. Make one real pass right on that page, the way you always do, for any student.",
-      "Go all the way through clicking Create.",
+      "Part 1, on the GoGuardian home screen: click Create Pass, just as you always do.",
+      "Part 2 starts by itself when the small Create Pass window opens: make one real pass in that window, for any student, all the way through clicking Create.",
     ],
   },
 ];
@@ -39,23 +34,26 @@ export const METHODS = [
 export const method = (kind) => METHODS.find((m) => m.kind === kind);
 
 // When more than one taught page is open, the helper tries them in this order.
-export const SEND_ORDER = ["create", "hallpass", "home"];
+export const SEND_ORDER = ["create", "hallpass"];
 
 // Steps taught before the helper knew about several ways were saved as a single "create" with the
 // site and window they were taught in.
-export const kindOfMacro = (macro) =>
-  macro.kind ?? (macro.popup ? "create" : (macro.host ?? HALLPASS_HOST) === HALLPASS_HOST ? "hallpass" : "home");
+export const kindOfMacro = (macro) => macro.kind ?? (macro.popup ? "create" : "hallpass");
 
 // Every taught way to make a pass, as { kind: steps }.
 export function makeMethods(macros) {
   const taught = { ...(macros?.make ?? {}) };
   if (macros?.create) taught[kindOfMacro(macros.create)] ??= macros.create;
+  delete taught.home; // dropped: the home screen only opens the Create Pass window
   return taught;
 }
 
-// Where steps taught for `kind` run. The Create Pass window can be on any GoGuardian address; the
-// home screen has to be the same site it was taught on, so steps never run on a page they weren't taught on.
+// Where steps taught for `kind` run. The Create Pass window can be on any GoGuardian address. Steps
+// taught on HallPass run on the site they were taught on (the HallPass website, unless taught elsewhere).
 export const methodPlace = (kind, macro) => ({
-  kind,
-  host: kind === "hallpass" ? HALLPASS_HOST : kind === "home" ? macro?.host : undefined,
+  kind: kind === "hallpass" ? "hallpass" : kind,
+  host: kind === "hallpass" ? macro?.host ?? HALLPASS_HOST : undefined,
 });
+
+// The home screen page whose Create Pass button opens the window, if the helper was taught to click it.
+export const openerPlace = (macro) => (macro?.opener ? { kind: "home", host: macro.opener.host } : null);

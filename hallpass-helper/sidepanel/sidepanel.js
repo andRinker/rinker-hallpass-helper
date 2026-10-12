@@ -1,7 +1,7 @@
 import { HALLPASS_URL, loadSettings, saveSettings } from "../lib/storage.js";
 import { alreadyListed, queueEntry, studentFromText, suggestions } from "../lib/queue.js";
 import { allGoGuardianTabs, capitalize, hostOf } from "../lib/tabs.js";
-import { SEND_ORDER, makeMethods, method, methodPlace } from "../lib/methods.js";
+import { SEND_ORDER, makeMethods, method, methodPlace, openerPlace } from "../lib/methods.js";
 import { $, askHallPass, hallpassTab, h, toast } from "./shared.js";
 import { renderGuide } from "./guide.js";
 import { initTeach, renderTeach } from "./teach.js";
@@ -157,7 +157,14 @@ async function taughtPages() {
   const pages = [];
   for (const kind of kinds) {
     const place = methodPlace(kind, taught[kind]);
-    pages.push({ kind, place, ...(await hallpassTab(place)) });
+    let page = { kind, place, ...(await hallpassTab(place)) };
+    // With the window closed, the helper can open it from the home screen if it was taught how.
+    const opener = openerPlace(taught[kind]);
+    if (page.state === "closed" && opener) {
+      const home = await hallpassTab(opener);
+      if (home.state !== "closed") page = { kind, place: opener, ...home, viaHome: true };
+    }
+    pages.push({ ...page, openerHost: opener?.host });
   }
   // Nothing taught yet: report on whatever GoGuardian page is open.
   if (!pages.length) pages.push({ kind: "hallpass", place: {}, ...(await hallpassTab()) });
@@ -169,13 +176,13 @@ async function renderHallPass() {
   const best = pages.find((p) => p.state === "ready") ?? pages.find((p) => p.state === "stale") ?? pages[0];
   const names = pages.map((p) => method(p.kind).name);
   const state = best?.state ?? "closed";
-  const openable = pages.filter((p) => p.kind !== "create");
+  const openable = pages.filter((p) => p.kind !== "create" || p.openerHost);
   const messages = {
     ready: `${best?.name ? capitalize(best.name) : "HallPass"} is open.`,
     stale: `Reload ${best?.name} so the helper can see it.`,
     // The Create Pass window can only be opened from the GoGuardian home screen, so there's no button for it.
     closed: names.length
-      ? `${names.length > 1 ? `None of ${names.join(", ")} is` : `${capitalize(best.name)} isn't`} open. ${pages.some((p) => p.kind === "create") ? "Click Create Pass on the GoGuardian home screen, or open a taught page. " : ""}The queue waits until one is.`
+      ? `${names.length > 1 ? `None of ${names.join(", ")} is` : `${capitalize(best.name)} isn't`} open. ${pages.some((p) => p.kind === "create") ? "Open the GoGuardian home screen or a taught page. " : ""}The queue waits until one is.`
       : "HallPass isn't open. The queue waits until it is.",
   };
   const target = state === "stale" ? best : openable[0];
@@ -216,8 +223,9 @@ $("openHallpass").addEventListener("click", async () => {
   const stale = pages.find((p) => p.state === "stale");
   if (stale) chrome.tabs.reload(stale.tab.id);
   else {
-    const page = pages.find((p) => p.kind !== "create");
-    chrome.tabs.create({ url: page?.place.host ? `https://${page.place.host}/` : HALLPASS_URL, pinned: true });
+    const page = pages.find((p) => p.kind !== "create" || p.openerHost);
+    const host = page?.kind === "create" ? page.openerHost : page?.place.host;
+    chrome.tabs.create({ url: host ? `https://${host}/` : HALLPASS_URL, pinned: true });
   }
 });
 $("outlineButton").addEventListener("click", showOutline);

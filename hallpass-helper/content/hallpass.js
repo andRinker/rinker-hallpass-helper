@@ -25,6 +25,14 @@
       if (!macro) return { ok: false, reason: "not-taught" };
       return HPH.runMacro(macro, { student, destination });
     },
+    // Clicks the button on the GoGuardian home screen that opens the Create Pass window.
+    "run-opener": async () => {
+      if (teaching()) return { ok: false, reason: "teaching" };
+      const { create, make } = await getMacros();
+      const opener = (make?.create ?? create)?.opener;
+      if (!opener) return { ok: false, reason: "not-taught" };
+      return HPH.runMacro(opener, {});
+    },
     "end-pass": async ({ student }) => {
       if (teaching()) return { ok: false, reason: "teaching" };
       const { end } = await getMacros();

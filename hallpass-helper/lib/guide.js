@@ -3,9 +3,9 @@
 import { METHODS, makeMethods } from "./methods.js";
 
 export const PAGES = [
-  { key: "hallpass", label: "HallPass website", how: "Open HallPass in a browser tab." },
-  { key: "home", label: "GoGuardian home screen", how: "Open GoGuardian in a browser tab." },
-  { key: "create", label: "Create Pass window", how: "Click Create Pass on the GoGuardian home screen." },
+  { key: "hallpass", label: "HallPass website", how: "Way 1: open hallpass.goguardian.com/home in a browser tab." },
+  { key: "home", label: "GoGuardian home screen", how: "Way 2: open teacher.goguardian.com/classrooms/active in a browser tab." },
+  { key: "create", label: "Create Pass window", how: "Way 2: it opens when you click Create Pass on the home screen." },
 ];
 
 // pages: { hallpass, home, create }, each "closed" | "stale" | "ready".
@@ -24,7 +24,7 @@ export function guide({ settings, pages, teaching = false }) {
       title: "Open the page where you make passes",
       done: seen.length > 0 && stale.length === 0,
       lines: [
-        "GoGuardian has three places to make a pass. The helper works in any of them:",
+        "A pass can be made two ways, over three pages. The helper works with either way:",
         ...PAGES.map((p) => `${p.label}: ${p.how}`),
         "Teach the helper each way you make passes. It then uses whichever taught page is open.",
         ...stale.map((p) => `Reload the ${p.label}. The helper can't see it yet.`),
@@ -52,7 +52,7 @@ export function guide({ settings, pages, teaching = false }) {
           ]
         : [
             "The Teach card below has one button for each way a pass is made. Each button names the page it watches.",
-            ...untaught.map((m) => `Teach: ${m.name} — ${m.use}`),
+            ...untaught.map((m) => `Teach: ${m.short} — ${m.use}`),
             "Open that page first, click its Teach button, then make one real pass all the way through Create. You can end it right after.",
             "Click Done, check the guesses and Save. Then do the next way you use, if any.",
           ],
@@ -83,6 +83,7 @@ export function guide({ settings, pages, teaching = false }) {
     current,
     doneCount: steps.filter((s) => s.done).length,
     complete: current === -1,
-    pages: PAGES.map((p) => ({ ...p, state: pages[p.key], taught: Boolean(taught[p.key]) })),
+    // The home screen counts as taught once the helper knows how to click Create Pass there.
+    pages: PAGES.map((p) => ({ ...p, state: pages[p.key], taught: Boolean(p.key === "home" ? taught.create?.opener : taught[p.key]) })),
   };
 }

@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "HallPass Helper",
-  "version": "0.3.5",
-  "version_name": "0.3.5 tester",
+  "version": "0.3.6",
+  "version_name": "0.3.6 tester",
   "description": "Sends your students to GoGuardian Hall Pass one at a time and ends passes on time. Not made by or affiliated with GoGuardian.",
   "permissions": [
     "storage",
