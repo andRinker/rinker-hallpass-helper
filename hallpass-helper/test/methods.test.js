@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { kindOfMacro, makeMethods, methodPlace, openerPlace, METHODS } from "../lib/methods.js";
+import { endMethods, kindOfMacro, makeMethods, methodPlace, openerPlace, METHODS } from "../lib/methods.js";
 
 test("steps taught before several ways existed are sorted by where they were taught", () => {
   assert.equal(kindOfMacro({ popup: true }), "create");
@@ -29,4 +29,13 @@ test("each way runs only where it was taught", () => {
 test("every way has plain directions", () => {
   assert.equal(METHODS.length, 2);
   for (const m of METHODS) assert.ok(m.name && m.use && m.closed && m.steps.length);
+});
+
+test("ending has the same two ways, and an older single end macro is sorted by where it was taught", () => {
+  assert.deepEqual(endMethods({}), {});
+  assert.deepEqual(Object.keys(endMethods({ end: { popup: true } })), ["create"]);
+  assert.deepEqual(Object.keys(endMethods({ end: {} })), ["hallpass"]);
+  const newer = { kind: "create" };
+  assert.equal(endMethods({ end: { popup: true }, endVia: { create: newer } }).create, newer);
+  for (const m of METHODS) assert.ok(m.end.label && m.end.steps.length);
 });

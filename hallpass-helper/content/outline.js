@@ -79,7 +79,9 @@
   function macroLines(macros, R) {
     const out = [];
     const taught = Object.entries(macros ?? {}).flatMap(([kind, macro]) =>
-      kind === "make" ? Object.entries(macro).map(([how, m]) => [`make via ${how}`, m]) : [[kind, macro]],
+      kind === "make" || kind === "endVia"
+        ? Object.entries(macro).map(([how, m]) => [`${kind === "make" ? "make" : "end"} via ${how}`, m])
+        : [[kind, macro]],
     );
     for (const [kind, macro] of taught) {
       out.push(`Taught "${kind}" steps:`);

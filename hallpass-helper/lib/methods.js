@@ -16,6 +16,10 @@ export const METHODS = [
       "Stay on your HallPass tab. Make one real pass there, the way you always do, for any student.",
       "Go all the way through clicking Create.",
     ],
+    end: {
+      label: "on the HallPass website",
+      steps: ["Stay on your HallPass tab. End a pass that's out, the way you always do, including any \"Are you sure?\" step."],
+    },
   },
   {
     kind: "create",
@@ -28,6 +32,13 @@ export const METHODS = [
       "Part 1, on the GoGuardian home screen: click Create Pass, just as you always do.",
       "Part 2 starts by itself when the small Create Pass window opens: make one real pass in that window, for any student, all the way through clicking Create.",
     ],
+    end: {
+      label: "from the home screen → pop-up",
+      steps: [
+        "Part 1, on the GoGuardian home screen: click the button that ends a pass (the one that opens the small window), just as you always do. Pick a pass that's out.",
+        "Part 2 starts by itself when the small window opens: finish ending the pass in that window, including any \"Are you sure?\" step.",
+      ],
+    },
   },
 ];
 
@@ -35,6 +46,8 @@ export const method = (kind) => METHODS.find((m) => m.kind === kind);
 
 // When more than one taught page is open, the helper tries them in this order.
 export const SEND_ORDER = ["create", "hallpass"];
+// Ending: the HallPass website needs no extra window, so it goes first.
+export const END_ORDER = ["hallpass", "create"];
 
 // Steps taught before the helper knew about several ways were saved as a single "create" with the
 // site and window they were taught in.
@@ -45,6 +58,13 @@ export function makeMethods(macros) {
   const taught = { ...(macros?.make ?? {}) };
   if (macros?.create) taught[kindOfMacro(macros.create)] ??= macros.create;
   delete taught.home; // dropped: the home screen only opens the Create Pass window
+  return taught;
+}
+
+// Every taught way to end a pass, as { kind: steps }. The single `end` from before is sorted by where it was taught.
+export function endMethods(macros) {
+  const taught = { ...(macros?.endVia ?? {}) };
+  if (macros?.end) taught[kindOfMacro(macros.end)] ??= macros.end;
   return taught;
 }
 

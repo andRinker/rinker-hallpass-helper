@@ -1,6 +1,6 @@
 // The setup guide in the side panel: which GoGuardian pages the helper can see, and the next thing
 // to do. Pure, so it can be tested without a browser.
-import { METHODS, makeMethods } from "./methods.js";
+import { METHODS, endMethods, makeMethods } from "./methods.js";
 
 export const PAGES = [
   { key: "hallpass", label: "HallPass website", how: "Way 1: open hallpass.goguardian.com/home in a browser tab." },
@@ -60,13 +60,13 @@ export function guide({ settings, pages, teaching = false }) {
     {
       id: "end",
       title: "Teach it to end a pass",
-      done: Boolean(macros.end),
+      done: Object.keys(endMethods(macros)).length > 0,
       lines: teaching
         ? ["The helper is watching. End a pass the way you always do, including any \"Are you sure?\" step.", "Then click Done."]
         : [
-            "Click Teach: end a pass below.",
-            "End a pass that's out, the way you always do, including any \"Are you sure?\" step.",
-            "Click Done, then Save.",
+            "The Teach card has an end-a-pass button for each way: on the HallPass website, or from the home screen → pop-up. Use the one you normally use.",
+            "End a pass that's out, the way you always do, including any \"Are you sure?\" step. From the home screen, part 1 is the button that opens the small window.",
+            "Click Done, then Save. Teach the other way too if you use it.",
           ],
     },
     {

@@ -2,8 +2,8 @@
 // and ends each pass once its time is up. Everything that clicks through HallPass runs here,
 // one thing at a time, so the queue, the timers and the Back button never trip over each other.
 import { loadSettings, saveSettings } from "./lib/storage.js";
-import { capitalize, goGuardianTab, hostOf, siteName, taughtPlace } from "./lib/tabs.js";
-import { SEND_ORDER, kindOfMacro, makeMethods, method, methodPlace, openerPlace } from "./lib/methods.js";
+import { capitalize, goGuardianTab, hostOf, siteName } from "./lib/tabs.js";
+import { END_ORDER, SEND_ORDER, endMethods, kindOfMacro, makeMethods, method, methodPlace, openerPlace } from "./lib/methods.js";
 import { dueToEnd, endsAt, nextToSend } from "./lib/queue.js";
 
 const WATCHED = ["queue", "queuePaused", "outPasses", "maxOut", "autoEndMinutes", "macros"];
@@ -131,8 +131,8 @@ async function readyTab(place) {
 }
 
 // The first taught way to make a pass whose page is open, and a name for what to tell the teacher.
-async function openMethod(methods) {
-  const taught = SEND_ORDER.filter((kind) => methods[kind]);
+async function openMethod(methods, order = SEND_ORDER) {
+  const taught = order.filter((kind) => methods[kind]);
   let stale = null;
   for (const kind of taught) {
     const place = methodPlace(kind, methods[kind]);
@@ -151,8 +151,8 @@ async function openMethod(methods) {
 }
 
 // Clicks Create Pass on the home screen and waits for the window it opens.
-async function openCreateWindow(homeTab, macro, name) {
-  const result = await inTab(homeTab, { type: "run-opener" });
+async function openCreateWindow(homeTab, name, message) {
+  const result = await inTab(homeTab, { type: "run-opener", ...message });
   if (!result?.ok) return { ok: false, why: stuckText(result, "the GoGuardian home screen") };
   for (let i = 0; i < 30; i++) {
     const page = await readyTab({ kind: "create" });
@@ -181,7 +181,7 @@ async function send(entry) {
   const { name, kind } = found;
   let tab = found.tab;
   if (found.opener) {
-    const opened = await openCreateWindow(found.opener, methods[kind], name);
+    const opened = await openCreateWindow(found.opener, name, { which: "make" });
     if (!opened.ok) {
       await saveSettings({ queuePaused: true, queueProblem: `${entry.label} wasn't sent. ${opened.why}` });
       notify("Queue paused", `${entry.label} wasn't sent. ${opened.why}`);
@@ -227,25 +227,38 @@ async function endPass(id, { manual = false } = {}) {
   const { outPasses, macros, autoEndMinutes } = await loadSettings();
   const pass = outPasses.find((p) => p.id === id);
   if (!pass) return { ok: true };
-  const place = taughtPlace(macros.end);
-  const name = siteName(place);
   const timesUp = `${pass.label}'s ${autoEndMinutes} minutes are up`;
-  if (!macros.end) {
+  const methods = endMethods(macros);
+  if (!Object.keys(methods).length) {
     if (!manual) {
       await markFailed(pass, "Teach the helper how to end a pass.");
       notify("Pass not ended", `${timesUp}. Teach the helper how you end a pass so it can do it for you.`);
     }
     return { ok: false, reason: "no-end-macro" };
   }
-  const tab = await goGuardianTab(place);
-  if (!tab) {
+  const found = await openMethod(methods, END_ORDER);
+  if (!found.tab && !found.opener) {
+    const where = found.stale ? found.stale.name : found.taught.map((k) => method(k).where.split(",")[0]).join(" or ");
     if (!manual) {
-      await markFailed(pass, `${capitalize(name)} wasn't open.`);
-      notify("Pass not ended", `${timesUp}, but ${name} isn't open. End it in ${name}.`);
+      await markFailed(pass, found.stale ? `Reload ${where}.` : `Open ${where}.`);
+      notify("Pass not ended", `${timesUp}, but ${where} ${found.stale ? "needs a reload" : "isn't open"}. End it by hand.`);
     }
     return { ok: false, reason: "closed" };
   }
-  const result = await inTab(tab, { type: "end-pass", student: pass.student });
+  const { name, kind } = found;
+  let tab = found.tab;
+  if (found.opener) {
+    const opened = await openCreateWindow(found.opener, name, { which: "end", student: pass.student });
+    if (!opened.ok) {
+      await markFailed(pass, opened.why);
+      if (!manual) notify("Pass not ended", `${timesUp}, but the helper couldn't end it. ${opened.why}`);
+      return { ok: false };
+    }
+    tab = opened.tab;
+  }
+  let result = await inTab(tab, { type: "end-pass", method: kind, student: pass.student });
+  // The window may close itself once the pass is ended, which cuts the reply off.
+  if (!result && kind === "create" && (await readyTab({ kind: "create" })).state === "closed") result = { ok: true };
   if (TRY_LATER.has(result?.reason)) return result;
   if (!result?.ok) {
     const why = stuckText(result, name);

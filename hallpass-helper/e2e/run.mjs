@@ -135,7 +135,7 @@ try {
   check(!/jordan|miller/i.test(JSON.stringify(macros.create)), "teach: no student name saved in the steps");
 
   // --- Teach: end a pass (end the real pass made while teaching) ---
-  await panel.getByRole("button", { name: "Teach: end a pass" }).click();
+  await panel.getByRole("button", { name: "Teach: end a pass on the HallPass website" }).click();
   await panel.waitForSelector('#teach[data-mode="recording"]');
   await hp.click('.card .name:text("Jordan Miller")');
   await hp.click('.card.expanded button:text("End Pass")');
@@ -146,7 +146,7 @@ try {
   const endRoles = await panel.$$eval("#teach .steps select", (els) => els.map((e) => e.value));
   check(JSON.stringify(endRoles) === JSON.stringify(["student", "fixed", "fixed"]), "teach end: guessed roles", JSON.stringify(endRoles));
   await panel.getByRole("button", { name: "Save" }).click();
-  await until(async () => /Re-teach: end a pass/.test(await panelText("#teach")), "taught both");
+  await until(async () => /Re-teach: end a pass on the HallPass website/.test(await panelText("#teach")), "taught both");
 
   // --- Queue: typed name + Enter, then a tapped suggestion; only one goes at a time ---
   const mockPasses = (page = hp) => page.evaluate(() => window.__mock.passes.map((p) => `${p.student.last}:${p.dest}`));

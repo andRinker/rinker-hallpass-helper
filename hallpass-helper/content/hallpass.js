@@ -26,18 +26,19 @@
       return HPH.runMacro(macro, { student, destination });
     },
     // Clicks the button on the GoGuardian home screen that opens the Create Pass window.
-    "run-opener": async () => {
+    "run-opener": async ({ which, student }) => {
       if (teaching()) return { ok: false, reason: "teaching" };
-      const { create, make } = await getMacros();
-      const opener = (make?.create ?? create)?.opener;
+      const { create, make, end, endVia } = await getMacros();
+      const opener = (which === "end" ? (endVia?.create ?? end) : (make?.create ?? create))?.opener;
       if (!opener) return { ok: false, reason: "not-taught" };
-      return HPH.runMacro(opener, {});
+      return HPH.runMacro(opener, { student });
     },
-    "end-pass": async ({ student }) => {
+    "end-pass": async ({ student, method }) => {
       if (teaching()) return { ok: false, reason: "teaching" };
-      const { end } = await getMacros();
-      if (!end) return { ok: false, reason: "no-end-macro" };
-      return HPH.runMacro(end, { student });
+      const { end, endVia } = await getMacros();
+      const macro = method ? endVia?.[method] : end;
+      if (!macro) return { ok: false, reason: "no-end-macro" };
+      return HPH.runMacro(macro, { student });
     },
     outline: async () => {
       const s = await chrome.storage.local.get({
