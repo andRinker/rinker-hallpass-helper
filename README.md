@@ -7,8 +7,8 @@
 1. On this page, click **Code → Download ZIP**.
 2. Right-click the downloaded .zip and choose **Extract All**. Chrome can't load an extension from inside a .zip.
 3. In Chrome, go to `chrome://extensions`, turn on **Developer mode** (top right), and click **Load unpacked**.
-4. Open the extracted folder and keep going until you reach the folder named **`hallpass-helper`**: the one with `manifest.json` directly inside it. Choose that folder. On Windows the path usually looks like `Downloads\rinker-hallpass-helper-master\rinker-hallpass-helper-master\hallpass-helper`.
+4. Open the extracted folder and keep going until you reach the folder named **`hallpass-helper`**: the one with `manifest.json` directly inside it. Choose that folder. On Windows the path usually looks like `Downloads\rinker-hallpass-helper-stable\rinker-hallpass-helper-stable\hallpass-helper` (the middle part is the name of the branch you downloaded, such as `stable`).
 
 If Chrome says **"Manifest file is missing or unreadable"**, you chose a folder above `hallpass-helper`. Go one level deeper.
 
-Setup after installing (settings, teaching it your first pass) is in the [HallPass Helper README](hallpass-helper/README.md).
+Setup after installing (your settings and which way you make passes) is in the [HallPass Helper README](hallpass-helper/README.md).

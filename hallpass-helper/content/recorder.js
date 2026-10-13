@@ -15,7 +15,7 @@
     recording.steps = HPH.addStep(recording.steps, step);
     sessionStorage.setItem(KEY, JSON.stringify(recording));
     chrome.runtime
-      .sendMessage({ type: "teach-progress", count: recording.steps.length, last: HPH.stepLabel(step) })
+      .sendMessage({ type: "teach-progress", count: recording.steps.length, last: HPH.stepLabel(step), steps: recording.steps })
       .catch(() => {});
   }
 

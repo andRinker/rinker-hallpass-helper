@@ -1,9 +1,14 @@
 import { HALLPASS_URL, loadSettings, saveSettings } from "../lib/storage.js";
 import { alreadyListed, queueEntry, studentFromText, suggestions } from "../lib/queue.js";
-import { taughtHost } from "../lib/tabs.js";
+import { allGoGuardianTabs, capitalize, hostOf } from "../lib/tabs.js";
+import { METHODS, SEND_ORDER, chosenLane, endMethods, makeMethods, method, methodPlace, openerPlace } from "../lib/methods.js";
 import { $, askHallPass, hallpassTab, h, toast } from "./shared.js";
+import { installBuiltin } from "../lib/builtin.js";
+import { renderGuide } from "./guide.js";
 import { initTeach, renderTeach } from "./teach.js";
 import { initWhosOut, renderWhosOut } from "./whos-out.js";
+
+$("version").textContent = chrome.runtime.getManifest().version_name ?? chrome.runtime.getManifest().version;
 
 let settings;
 let destination = null;
@@ -16,6 +21,7 @@ async function refresh() {
   renderQueue();
   renderTeach();
   renderWhosOut();
+  renderLane();
   renderHallPass();
 }
 
@@ -75,7 +81,7 @@ function queueStatus() {
   const { macros, queue, outPasses, queuePaused, queueProblem, maxOut, autoEndMinutes } = settings;
   if (queueProblem) return { text: queueProblem, problem: true };
   if (queuePaused) return { text: "Paused. No one is sent until you resume." };
-  if (!macros.create) return { text: "Teach the helper to make a pass first. Students wait here until then." };
+  if (!makeMethods(macros)[chosenLane(settings)]) return { text: "Teach the helper to make a pass first. Students wait here until then." };
   const pace = maxOut === 1 ? "one at a time" : `${maxOut} at a time`;
   if (!queue.length) return { text: `Add students and the helper sends them to HallPass ${pace}.` };
   if (outPasses.length < maxOut) return { text: `Sending ${queue[0].label}…` };
@@ -146,39 +152,108 @@ $("pause").addEventListener("click", async () => {
 
 // --- HallPass status and the outline ---
 
-async function renderHallPass() {
-  const { state, name } = await hallpassTab(taughtHost(settings?.macros.create));
-  const messages = {
-    ready: `${name} is open.`,
-    stale: `Reload your ${name} tab so the helper can see it.`,
-    closed: `${name} isn't open. The queue waits until it is.`,
-  };
-  $("hallpass").dataset.state = state;
-  $("hallpass").querySelector(".text").textContent = messages[state];
-  $("openHallpass").hidden = state === "ready";
-  $("openHallpass").textContent = state === "stale" ? "Reload it" : `Open ${name}`;
+// The lane switch: the helper makes and ends passes one way at a time, the way picked here.
+function renderLane() {
+  const lane = chosenLane(settings);
+  const made = makeMethods(settings.macros);
+  const ended = endMethods(settings.macros);
+  $("lane").replaceChildren(
+    h("div", { class: "lane-title" }, "Make and end passes through:"),
+    ...METHODS.map((m) => {
+      const input = h("input", { type: "radio", name: "lane", value: m.kind, "aria-label": `Use ${m.short}` });
+      input.checked = lane === m.kind;
+      input.addEventListener("change", () => saveSettings({ lane: m.kind, queueProblem: "" }));
+      const missing = [made[m.kind] ? null : "making", ended[m.kind] ? null : "ending"].filter(Boolean);
+      return h("label", {}, input, ` ${m.short}`, missing.length ? h("div", { class: "hint" }, `Not taught yet: ${missing.join(" and ")}`) : null);
+    }),
+    h("p", { class: "hint" }, "The helper uses only this way and never switches by itself."),
+  );
 }
 
+// Checks every page the helper was taught to make passes on. Ready beats reload beats closed.
+async function taughtPages() {
+  const taught = makeMethods(settings?.macros);
+  const kinds = SEND_ORDER.filter((k) => taught[k] && k === chosenLane(settings));
+  const pages = [];
+  for (const kind of kinds) {
+    const place = methodPlace(kind, taught[kind]);
+    let page = { kind, place, ...(await hallpassTab(place)) };
+    // With the window closed, the helper can open it from the home screen if it was taught how.
+    const opener = openerPlace(taught[kind]);
+    if (page.state === "closed" && opener) {
+      const home = await hallpassTab(opener);
+      if (home.state !== "closed") page = { kind, place: opener, ...home, viaHome: true };
+    }
+    pages.push({ ...page, openerHost: opener?.host });
+  }
+  // Nothing taught yet: report on whatever GoGuardian page is open.
+  if (!pages.length) pages.push({ kind: "hallpass", place: {}, ...(await hallpassTab()) });
+  return pages;
+}
+
+async function renderHallPass() {
+  const pages = await taughtPages();
+  const best = pages.find((p) => p.state === "ready") ?? pages.find((p) => p.state === "stale") ?? pages[0];
+  const names = pages.map((p) => method(p.kind).name);
+  const state = best?.state ?? "closed";
+  const openable = pages.filter((p) => p.kind !== "create" || p.openerHost);
+  const messages = {
+    ready: `${best?.name ? capitalize(best.name) : "HallPass"} is open.`,
+    stale: `Reload ${best?.name} so the helper can see it.`,
+    // The Create Pass window can only be opened from the GoGuardian home screen, so there's no button for it.
+    closed: names.length
+      ? `${names.length > 1 ? `None of ${names.join(", ")} is` : `${capitalize(best.name)} isn't`} open. ${pages.some((p) => p.kind === "create") ? "Open the GoGuardian home screen or a taught page. " : ""}The queue waits until one is.`
+      : "HallPass isn't open. The queue waits until it is.",
+  };
+  const target = state === "stale" ? best : openable[0];
+  $("hallpass").dataset.state = state;
+  $("hallpass").querySelector(".text").textContent = messages[state];
+  $("openHallpass").hidden = state === "ready" || !target;
+  $("openHallpass").textContent = state === "stale" ? "Reload it" : `Open ${target?.name ?? "HallPass"}`;
+  renderGuide(settings, $("teach").dataset.mode === "recording");
+}
+
+// Outlines every open GoGuardian tab, pop-up windows included. A pop-up (like the Create Pass window)
+// has no side panel of its own, so open it, then click the button here in the main window.
 async function showOutline() {
-  const result = await askHallPass({ type: "outline" });
-  if (!result?.ok) return;
-  $("outlineText").value = result.text;
+  const tabs = await allGoGuardianTabs();
+  const parts = [];
+  for (const tab of tabs) {
+    const result = await chrome.tabs.sendMessage(tab.id, { type: "outline" }).catch(() => null);
+    const win = await chrome.windows.get(tab.windowId).catch(() => null);
+    const kind = win?.type === "popup" ? "pop-up window" : "browser window";
+    parts.push({ head: `${hostOf(tab.url)} (${kind}${tab.active ? ", showing" : ", in the background"})`, text: result?.ok ? result.text : null });
+  }
+  if (!parts.some((p) => p.text)) {
+    toast(tabs.length ? "Reload your GoGuardian tabs first." : "Open HallPass first.");
+    return;
+  }
+  const text =
+    parts.length === 1
+      ? parts[0].text
+      : parts.map((p, i) => `===== Page ${i + 1} of ${parts.length}: ${p.head} =====\n${p.text ?? "(the helper can't read this page. Reload it.)"}`).join("\n\n");
+  $("outlineText").value = text;
   $("outlineBox").hidden = false;
 }
 
 $("settings").addEventListener("click", () => chrome.runtime.openOptionsPage());
 // Reloads or opens the same site the status line is talking about: the one the steps were taught on.
 $("openHallpass").addEventListener("click", async () => {
-  const host = taughtHost(settings?.macros.create);
-  const { state, tab } = await hallpassTab(host);
-  if (state === "stale") chrome.tabs.reload(tab.id);
-  else chrome.tabs.create({ url: host ? `https://${host}/` : HALLPASS_URL, pinned: true });
+  const pages = await taughtPages();
+  const stale = pages.find((p) => p.state === "stale");
+  if (stale) chrome.tabs.reload(stale.tab.id);
+  else {
+    const page = pages.find((p) => p.kind !== "create" || p.openerHost);
+    const host = page?.kind === "create" ? page.openerHost : page?.place.host;
+    chrome.tabs.create({ url: host ? `https://${host}/` : HALLPASS_URL, pinned: true });
+  }
 });
 $("outlineButton").addEventListener("click", showOutline);
+
 $("closeOutline").addEventListener("click", () => ($("outlineBox").hidden = true));
 $("copyOutline").addEventListener("click", async () => {
   await navigator.clipboard.writeText($("outlineText").value);
-  toast("Copied. Paste it into an email or doc to yourself, then into your chat with Claude.");
+  toast("Copied. Paste it into your chat with Claude.");
 });
 
 chrome.storage.onChanged.addListener(refresh);
@@ -189,6 +264,7 @@ setInterval(() => {
   renderHallPass();
 }, 15000);
 
+await installBuiltin();
 settings = await loadSettings();
 const getSettings = () => settings;
 initWhosOut(getSettings);

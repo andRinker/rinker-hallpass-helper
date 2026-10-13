@@ -2,7 +2,9 @@
 // and ends each pass once its time is up. Everything that clicks through HallPass runs here,
 // one thing at a time, so the queue, the timers and the Back button never trip over each other.
 import { loadSettings, saveSettings } from "./lib/storage.js";
-import { goGuardianTab, hostOf, siteName, taughtHost } from "./lib/tabs.js";
+import { capitalize, goGuardianTab, hostOf, siteName } from "./lib/tabs.js";
+import { installBuiltin } from "./lib/builtin.js";
+import { END_ORDER, SEND_ORDER, chosenLane, endMethods, kindOfMacro, makeMethods, method, methodPlace, openerPlace } from "./lib/methods.js";
 import { dueToEnd, endsAt, nextToSend } from "./lib/queue.js";
 
 const WATCHED = ["queue", "queuePaused", "outPasses", "maxOut", "autoEndMinutes", "macros"];
@@ -56,8 +58,9 @@ async function look() {
   // End first, so a pass that's up frees its spot before the next student goes.
   for (const pass of dueToEnd(s)) await endPass(pass.id);
   s = await loadSettings();
+  s = await saveMethods(s);
   const next = nextToSend(s);
-  if (next && s.macros.create) await send(next);
+  if (next && Object.keys(makeMethods(s.macros)).length) await send(next);
   // A note like "Open HallPass so Ava can go" is stale once no one is waiting to go.
   else if (!next && !s.queuePaused && s.queueProblem) await saveSettings({ queueProblem: "" });
 }
@@ -106,22 +109,99 @@ function stuckText(result, name) {
     case "no-end-macro":
       return "The helper hasn't been taught that yet.";
     case undefined:
-      return `Couldn't reach ${name}. Reload the ${name} tab.`;
+      return `Couldn't reach ${name}. Reload it.`;
     default:
       return `Something went wrong in ${name}.`;
   }
 }
 
+// A single "create" taught before there were several ways to make a pass moves into macros.make,
+// where the page it's replayed on looks it up by kind.
+async function saveMethods(s) {
+  const create = s.macros.create;
+  if (!create || s.macros.make?.[kindOfMacro(create)]) return s;
+  await saveSettings({ macros: { ...s.macros, make: makeMethods(s.macros) } });
+  return loadSettings();
+}
+
+const pick = (all, kind) => (all[kind] ? { [kind]: all[kind] } : {});
+
+async function readyTab(place) {
+  const tab = await goGuardianTab(place);
+  if (!tab) return { state: "closed" };
+  const pong = await chrome.tabs.sendMessage(tab.id, { type: "ping" }).catch(() => null);
+  return { state: pong?.ok ? "ready" : "stale", tab };
+}
+
+// The first taught way to make a pass whose page is open, and a name for what to tell the teacher.
+async function openMethod(methods, order = SEND_ORDER) {
+  const taught = order.filter((kind) => methods[kind]);
+  let stale = null;
+  for (const kind of taught) {
+    const place = methodPlace(kind, methods[kind]);
+    const page = await readyTab(place);
+    if (page.state === "ready") return { kind, tab: page.tab, name: siteName(place) };
+    if (page.state === "stale") stale ??= { kind, name: siteName(place) };
+    // The Create Pass window is closed: the home screen's Create Pass button can open it.
+    const opener = openerPlace(methods[kind]);
+    if (opener) {
+      const home = await readyTab(opener);
+      if (home.state === "ready") return { kind, name: siteName(place), opener: home.tab };
+      if (home.state === "stale") stale ??= { kind, name: siteName(opener) };
+    }
+  }
+  return { taught, stale };
+}
+
+// Clicks Create Pass on the home screen and waits for the window it opens.
+async function openCreateWindow(homeTab, name, message) {
+  const result = await inTab(homeTab, { type: "run-opener", ...message });
+  if (!result?.ok) return { ok: false, why: stuckText(result, "the GoGuardian home screen") };
+  for (let i = 0; i < 30; i++) {
+    const page = await readyTab({ kind: "create" });
+    if (page.state === "ready" && page.tab.status === "complete") {
+      // A new window can still reload as it starts up, so let it settle and check it again.
+      await new Promise((r) => setTimeout(r, 1500));
+      const again = await readyTab({ kind: "create" });
+      if (again.state === "ready" && again.tab.status === "complete") return { ok: true, tab: again.tab };
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  return { ok: false, why: `${capitalize(name)} didn't open after clicking Create Pass.` };
+}
+
 async function send(entry) {
-  const { macros } = await loadSettings();
-  const host = taughtHost(macros.create);
-  const name = siteName(host);
-  const tab = await goGuardianTab(host);
-  if (!tab) {
-    await saveSettings({ queueProblem: `Open ${name} so ${entry.label} can go.` });
+  const settings = await loadSettings();
+  // Only the chosen lane is used: the helper never moves to the other way by itself.
+  const lane = chosenLane(settings);
+  const methods = pick(makeMethods(settings.macros), lane);
+  if (!methods[lane]) {
+    await saveSettings({ queueProblem: `The helper hasn't been taught ${method(lane).name} yet. Teach it, or switch to the other way.` });
     return;
   }
-  const result = await inTab(tab, { type: "make-pass", student: entry.student, destination: entry.destination });
+  const found = await openMethod(methods);
+  if (!found.tab && !found.opener) {
+    const problem = found.stale
+      ? `Reload ${found.stale.name} so ${entry.label} can go.`
+      : `Open ${found.taught.map((k) => method(k).where.split(",")[0]).join(" or ")} so ${entry.label} can go.`;
+    await saveSettings({ queueProblem: problem });
+    return;
+  }
+  const { name, kind } = found;
+  let tab = found.tab;
+  if (found.opener) {
+    const opened = await openCreateWindow(found.opener, name, { which: "make" });
+    if (!opened.ok) {
+      await saveSettings({ queuePaused: true, queueProblem: `${entry.label} wasn't sent. ${opened.why}` });
+      notify("Queue paused", `${entry.label} wasn't sent. ${opened.why}`);
+      return;
+    }
+    tab = opened.tab;
+  }
+  let result = await inTab(tab, { type: "make-pass", method: kind, student: entry.student, destination: entry.destination });
+  // The Create Pass window may close itself once the pass is made, which cuts the reply off. A window that's
+  // gone after no reply means it finished (a stuck step would have left it open).
+  if (!result && kind === "create" && (await readyTab({ kind: "create" })).state === "closed") result = { ok: true };
   if (TRY_LATER.has(result?.reason)) return;
   if (!result?.ok) {
     const why = stuckText(result, name);
@@ -153,28 +233,44 @@ async function markFailed(pass, why) {
 
 // Ends a pass in HallPass. Time's up unless `manual` (the teacher pressed Back).
 async function endPass(id, { manual = false } = {}) {
-  const { outPasses, macros, autoEndMinutes } = await loadSettings();
+  const settings = await loadSettings();
+  const { outPasses, macros, autoEndMinutes } = settings;
   const pass = outPasses.find((p) => p.id === id);
   if (!pass) return { ok: true };
-  const host = taughtHost(macros.end);
-  const name = siteName(host);
+  const lane = chosenLane(settings);
   const timesUp = `${pass.label}'s ${autoEndMinutes} minutes are up`;
-  if (!macros.end) {
+  const methods = pick(endMethods(macros), lane);
+  if (!methods[lane]) {
+    const need = Object.keys(endMethods(macros)).length ? `It only knows how to end a pass the other way. Switch ways, or teach ending ${method(lane).end.label}.` : "Teach the helper how you end a pass.";
     if (!manual) {
-      await markFailed(pass, "Teach the helper how to end a pass.");
-      notify("Pass not ended", `${timesUp}. Teach the helper how you end a pass so it can do it for you.`);
+      await markFailed(pass, need);
+      notify("Pass not ended", `${timesUp}. ${need}`);
     }
     return { ok: false, reason: "no-end-macro" };
   }
-  const tab = await goGuardianTab(host);
-  if (!tab) {
+  const found = await openMethod(methods, END_ORDER);
+  if (!found.tab && !found.opener) {
+    const where = found.stale ? found.stale.name : found.taught.map((k) => method(k).where.split(",")[0]).join(" or ");
     if (!manual) {
-      await markFailed(pass, `${name} wasn't open.`);
-      notify("Pass not ended", `${timesUp}, but ${name} isn't open. End it in ${name}.`);
+      await markFailed(pass, found.stale ? `Reload ${where}.` : `Open ${where}.`);
+      notify("Pass not ended", `${timesUp}, but ${where} ${found.stale ? "needs a reload" : "isn't open"}. End it by hand.`);
     }
     return { ok: false, reason: "closed" };
   }
-  const result = await inTab(tab, { type: "end-pass", student: pass.student });
+  const { name, kind } = found;
+  let tab = found.tab;
+  if (found.opener) {
+    const opened = await openCreateWindow(found.opener, name, { which: "end", student: pass.student });
+    if (!opened.ok) {
+      await markFailed(pass, opened.why);
+      if (!manual) notify("Pass not ended", `${timesUp}, but the helper couldn't end it. ${opened.why}`);
+      return { ok: false };
+    }
+    tab = opened.tab;
+  }
+  let result = await inTab(tab, { type: "end-pass", method: kind, student: pass.student });
+  // The window may close itself once the pass is ended, which cuts the reply off.
+  if (!result && kind === "create" && (await readyTab({ kind: "create" })).state === "closed") result = { ok: true };
   if (TRY_LATER.has(result?.reason)) return result;
   if (!result?.ok) {
     const why = stuckText(result, name);
@@ -191,3 +287,8 @@ async function endPass(id, { manual = false } = {}) {
 function notify(title, message) {
   chrome.notifications.create({ type: "basic", iconUrl: "icons/icon128.png", title, message });
 }
+
+// The steps for making and ending passes are built in. Written on install, on browser start and whenever this wakes.
+installBuiltin();
+chrome.runtime.onInstalled.addListener(installBuiltin);
+chrome.runtime.onStartup.addListener(installBuiltin);

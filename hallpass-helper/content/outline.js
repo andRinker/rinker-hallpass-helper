@@ -78,7 +78,12 @@
 
   function macroLines(macros, R) {
     const out = [];
-    for (const [kind, macro] of Object.entries(macros ?? {})) {
+    const taught = Object.entries(macros ?? {}).flatMap(([kind, macro]) =>
+      kind === "make" || kind === "endVia"
+        ? Object.entries(macro).map(([how, m]) => [`${kind === "make" ? "make" : "end"} via ${how}`, m])
+        : [[kind, macro]],
+    );
+    for (const [kind, macro] of taught) {
       out.push(`Taught "${kind}" steps:`);
       macro.steps.forEach((step, i) => {
         const t = step.target;
@@ -112,7 +117,7 @@
     const R = (text) => HPH.redact(text, { keep, roster });
     const out = [
       "HallPass Helper page outline (student and staff names are hidden)",
-      `Helper version: ${chrome.runtime.getManifest().version}`,
+      `Helper version: ${chrome.runtime.getManifest().version_name ?? chrome.runtime.getManifest().version}`,
       `Site: ${location.host}`,
       `Page: ${R(location.pathname.replace(/\d+/g, "#"))}`,
       ...frameLines(),

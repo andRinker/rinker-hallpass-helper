@@ -18,17 +18,27 @@
     "teach-status": async () => ({ ok: true, ...HPH.recordingStatus() }),
     "teach-stop": async () => ({ ok: true, ...HPH.stopRecording() }),
     // Makes the pass all the way through the final button.
-    "make-pass": async ({ student, destination }) => {
+    "make-pass": async ({ student, destination, method }) => {
       if (teaching()) return { ok: false, reason: "teaching" };
-      const { create } = await getMacros();
-      if (!create) return { ok: false, reason: "not-taught" };
-      return HPH.runMacro(create, { student, destination });
+      const { create, make } = await getMacros();
+      const macro = method ? make?.[method] : create;
+      if (!macro) return { ok: false, reason: "not-taught" };
+      return HPH.runMacro(macro, { student, destination });
     },
-    "end-pass": async ({ student }) => {
+    // Clicks the button on the GoGuardian home screen that opens the Create Pass window.
+    "run-opener": async ({ which, student }) => {
       if (teaching()) return { ok: false, reason: "teaching" };
-      const { end } = await getMacros();
-      if (!end) return { ok: false, reason: "no-end-macro" };
-      return HPH.runMacro(end, { student });
+      const { create, make, end, endVia } = await getMacros();
+      const opener = (which === "end" ? (endVia?.create ?? end) : (make?.create ?? create))?.opener;
+      if (!opener) return { ok: false, reason: "not-taught" };
+      return HPH.runMacro(opener, { student });
+    },
+    "end-pass": async ({ student, method }) => {
+      if (teaching()) return { ok: false, reason: "teaching" };
+      const { end, endVia } = await getMacros();
+      const macro = method ? endVia?.[method] : end;
+      if (!macro) return { ok: false, reason: "no-end-macro" };
+      return HPH.runMacro(macro, { student });
     },
     outline: async () => {
       const s = await chrome.storage.local.get({

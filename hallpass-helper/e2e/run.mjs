@@ -31,7 +31,7 @@ const ctx = await chromium.launchPersistentContext("", {
   channel: "chromium",
   executablePath: process.env.CHROMIUM_PATH,
   headless: true,
-  args: [`--disable-extensions-except=${extDir}`, `--load-extension=${extDir}`],
+  args: [`--disable-extensions-except=${extDir}`, `--load-extension=${extDir}`, "--disable-popup-blocking"],
   viewport: { width: 1100, height: 800 },
 });
 const errors = [];
@@ -40,9 +40,18 @@ const watch = (page, name) => {
   page.on("pageerror", (e) => errors.push(`${name}: ${e.message}`));
 };
 
+const fixture = JSON.parse(readFileSync(new URL("./fixture-macros.json", import.meta.url), "utf8"));
+
 try {
   await ctx.route("https://*.goguardian.com/**", (route) =>
     route.fulfill({ contentType: "text/html", body: mockHtml }),
+  );
+  // The GoGuardian home screen has a Create Pass button that opens the Create Pass window.
+  await ctx.route("https://teacher.goguardian.com/classrooms/active", (route) =>
+    route.fulfill({
+      contentType: "text/html",
+      body: `<!doctype html><title>Home</title><button id="openCreate">Create a new hall pass</button><script>document.getElementById("openCreate").onclick = () => window.open("https://hallpass.goguardian.com/window/passes/create", "createpass", "popup,width=520,height=760");</script>`,
+    }),
   );
   const ours = (w) => w.url().endsWith("/background.js");
   const sw = ctx.serviceWorkers().find(ours) ?? (await ctx.waitForEvent("serviceworker", { predicate: ours }));
@@ -78,6 +87,11 @@ try {
       autoEndMinutes: 7,
     }),
   );
+  await until(async () => (await storage("macros")).macros.make?.create, "the built-in steps to be installed");
+  const builtIn = (await storage("macros")).macros;
+  check(builtIn.make.hallpass.steps.length === 8 && builtIn.make.create.steps.length === 9 && builtIn.endVia.hallpass.steps.length === 1 && builtIn.endVia.create.opener, "built in: both ways of making and ending are installed on their own");
+  // Steps recorded on the mock pages stand in for the real built-in ones; macrosOverride keeps the build from replacing them.
+  await sw.evaluate((macros) => chrome.storage.local.set({ macros, macrosOverride: true }), fixture);
 
   const hp = await ctx.newPage();
   watch(hp, "hallpass");
@@ -91,45 +105,18 @@ try {
   const toast = async (re) => until(async () => re.test((await panelText("#toast")) ?? ""), `toast ${re}`);
   const clearToast = () => panel.evaluate(() => (document.querySelector("#toast").textContent = ""));
 
-  // --- Teach: make a pass ---
-  await panel.getByRole("button", { name: "Teach: make a pass" }).click();
-  await panel.waitForSelector('#teach[data-mode="recording"]');
-  await hp.click("#newPass");
-  await hp.click('[role=combobox][aria-label="Site"]');
-  await hp.click('[role=option]:text("Middle School South")');
-  await hp.locator(".student-search").pressSequentially("jor", { delay: 60 });
-  await hp.click('.results [role=option]:has-text("Jordan Miller")');
-  await hp.selectOption('select[aria-label="Teacher"]', { label: "Ms. Rivera" });
-  await hp.click('.chip:text("6th Grade Bathroom")');
-  await hp.click('button:text("Create Pass")');
-  await until(async () => /8 steps/.test(await panelText("#teach")), "8 recorded steps");
-  await panel.getByRole("button", { name: "Done" }).click();
-  await panel.waitForSelector('#teach[data-mode="review"]');
-  const roles = await panel.$$eval("#teach .steps select", (els) => els.map((e) => e.value));
+  // --- The setup guide says what's open and what to do first ---
+  const guideText = () => panelText("#guide");
+  await until(async () => /HallPass website\s*✓ Helper can see it/.test((await guideText()) ?? ""), "guide lists HallPass as seen");
+  const guideNow = (await guideText()) ?? "";
   check(
-    JSON.stringify(roles) === JSON.stringify(["fixed", "fixed", "fixed", "student", "student", "fixed", "destination", "final"]),
-    "teach: guessed the student, destination and final steps",
-    JSON.stringify(roles),
+    /Create Pass window\s*Not open/.test(guideNow) && /Setup: 2 of 3 done/.test(guideNow) && !/Teach/.test(guideNow),
+    "guide: shows the pages it can see and the next step",
+    guideNow.replace(/\s+/g, " ").slice(0, 300),
   );
-  if (shotsDir) await panel.screenshot({ path: `${shotsDir}/review.png`, fullPage: true });
-  await panel.getByRole("button", { name: "Save" }).click();
-  const { macros } = await storage("macros");
-  check(macros.create?.steps.length === 8, "teach: create steps saved");
-  check(!/jordan|miller/i.test(JSON.stringify(macros.create)), "teach: no student name saved in the steps");
 
-  // --- Teach: end a pass (end the real pass made while teaching) ---
-  await panel.getByRole("button", { name: "Teach: end a pass" }).click();
-  await panel.waitForSelector('#teach[data-mode="recording"]');
-  await hp.click('.card .name:text("Jordan Miller")');
-  await hp.click('.card.expanded button:text("End Pass")');
-  await hp.click('button:text("Yes, end it")');
-  await until(async () => /3 steps/.test(await panelText("#teach")), "3 recorded steps");
-  await panel.getByRole("button", { name: "Done" }).click();
-  await panel.waitForSelector('#teach[data-mode="review"]');
-  const endRoles = await panel.$$eval("#teach .steps select", (els) => els.map((e) => e.value));
-  check(JSON.stringify(endRoles) === JSON.stringify(["student", "fixed", "fixed"]), "teach end: guessed roles", JSON.stringify(endRoles));
-  await panel.getByRole("button", { name: "Save" }).click();
-  await until(async () => /Knows how to make and end/.test(await panelText("#teach")), "taught both");
+  check(await panel.locator("#teach").isHidden(), "no Teach card: the steps are built in");
+  check((await panel.getByRole("button", { name: /Teach/ }).count()) === 0, "no Teach buttons");
 
   // --- Queue: typed name + Enter, then a tapped suggestion; only one goes at a time ---
   const mockPasses = (page = hp) => page.evaluate(() => window.__mock.passes.map((p) => `${p.student.last}:${p.dest}`));
@@ -246,11 +233,33 @@ try {
   }
   await hp.click("button.cancel");
 
+  // --- Home screen -> Create Pass window lane: the helper clicks Create Pass itself and makes the pass in the window ---
+  const home2 = await ctx.newPage();
+  watch(home2, "home2");
+  await home2.goto("https://teacher.goguardian.com/classrooms/active");
+  await home2.bringToFront();
+  await ctx.serviceWorkers()[0].evaluate(() => chrome.storage.local.set({ outPasses: [], queue: [] }));
+  check(await panel.getByLabel("Use HallPass website").isChecked(), "lane: starts on the first way");
+  await panel.getByLabel("Use Home screen → Create Pass window").check();
+  await until(async () => /^\s*GoGuardian is open/.test((await panelText("#hallpass")) ?? ""), "status says the home screen can open the window");
+  const hpBefore = (await mockPasses(hp)).length;
+  await panel.fill("#addName", "ava lee");
+  await panel.press("#addName", "Enter");
+  const popup2 = await until(async () => ctx.pages().find((p) => p.url().includes("/window/passes/create")), "the helper opened the Create Pass window", 30000);
+  watch(popup2, "popup");
+  await until(async () => (await mockPasses(popup2)).includes("Lee:Nurse"), "Ava sent in the window the helper opened", 30000);
+  check((await mockPasses(hp)).length === hpBefore, "lane: nothing was made on the HallPass website");
+
+  // The lane switch: with HallPass chosen, the status talks only about the HallPass website.
+  await panel.getByLabel("Use HallPass website").check();
+  await until(async () => /^\s*HallPass is open/.test((await panelText("#hallpass")) ?? ""), "status follows the lane switch");
+
   check(errors.length === 0, "no console errors", errors.join("\n     "));
 } catch (err) {
   failures++;
   console.log(`FAIL ${err.message}`);
   if (process.env.E2E_DEBUG) console.log(await ctx.serviceWorkers()[0]?.evaluate(() => chrome.storage.local.get(["queue", "outPasses", "queuePaused", "queueProblem"])).then(JSON.stringify).catch(String));
+  for (const p of ctx.pages()) console.log("PAGE", p.url(), await p.evaluate(() => JSON.stringify(window.__mock?.passes?.map((x) => x.student.last))).catch(String));
   if (errors.length) console.log(`     console errors:\n     ${errors.join("\n     ")}`);
 } finally {
   await ctx.close();
