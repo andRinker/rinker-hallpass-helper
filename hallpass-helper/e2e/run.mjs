@@ -110,7 +110,7 @@ try {
   await until(async () => /HallPass website\s*✓ Helper can see it/.test((await guideText()) ?? ""), "guide lists HallPass as seen");
   const guideNow = (await guideText()) ?? "";
   check(
-    /Create Pass window\s*Not open/.test(guideNow) && /Setup: 2 of 3 done/.test(guideNow) && !/Teach/.test(guideNow),
+    /Create Pass window\s*Asleep/.test(guideNow) && /Setup: 2 of 3 done/.test(guideNow) && !/Teach/.test(guideNow),
     "guide: shows the pages it can see and the next step",
     guideNow.replace(/\s+/g, " ").slice(0, 300),
   );

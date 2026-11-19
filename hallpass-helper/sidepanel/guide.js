@@ -3,7 +3,7 @@ import { guide } from "../lib/guide.js";
 import { allGoGuardianTabs, pageKind, popupWindowIds } from "../lib/tabs.js";
 import { $, h } from "./shared.js";
 
-const PAGE_STATE = { ready: "✓ Helper can see it", stale: "Reload it so the helper can see it", closed: "Not open" };
+const PAGE_STATE = { ready: "✓ Helper can see it", stale: "Reload it so the helper can see it", closed: "Not open", off: "Asleep: not the way you picked" };
 let expanded = null; // null: follow the setup progress. true/false: the teacher chose.
 
 async function scanPages() {
