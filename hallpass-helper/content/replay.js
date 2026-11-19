@@ -14,6 +14,19 @@
     }
   }
 
+  // A search box might be announced as a combobox or a plain text box, so a typing step tries both.
+  async function waitForStep(step, params, timeout) {
+    if (step.action !== "type") return waitFor(step.target, params, timeout);
+    const until = Date.now() + timeout;
+    const alt = { combobox: "textbox", textbox: "combobox" }[step.target.role];
+    for (;;) {
+      let els = HPH.findTargets(step.target, params);
+      if (!els.length && alt) els = HPH.findTargets({ ...step.target, role: alt }, params);
+      if (els.length || Date.now() > until) return els;
+      await sleep(150);
+    }
+  }
+
   function realClick(el) {
     el.scrollIntoView({ block: "center", inline: "center" });
     const r = el.getBoundingClientRect();
@@ -131,7 +144,7 @@
         const step = macro.steps[i];
         const studentClick = step.role === "student" && step.action === "click";
 
-        let els = await waitFor(step.target, params, studentClick && searchBox ? 2500 : 5000);
+        let els = await waitForStep(step, params, step.optional ? 2500 : studentClick && searchBox ? 2500 : 5000);
         // The search box may only match first or last names; try each on its own.
         if (!els.length && studentClick && searchBox) {
           for (const alt of [params.student.last, params.student.first]) {
@@ -141,6 +154,10 @@
             if (els.length) break;
           }
         }
+        // Optional steps (a button that only shows up sometimes) are skipped when absent. If several
+        // match, the helper can't tell which is meant, so it stops rather than guess.
+        if (!els.length && step.optional) continue;
+        if (els.length > 1 && step.optional) return fail("ambiguous", i);
         if (!els.length) return fail("stuck", i);
         if (els.length > 1 && step.role === "student") {
           HPH.highlight(els, "Which one?");

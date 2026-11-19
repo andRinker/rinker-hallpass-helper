@@ -3,7 +3,7 @@ import { guide } from "../lib/guide.js";
 import { allGoGuardianTabs, pageKind, popupWindowIds } from "../lib/tabs.js";
 import { $, h } from "./shared.js";
 
-const PAGE_STATE = { ready: "✓ Helper can see it", stale: "Reload it so the helper can see it", closed: "Not open" };
+const PAGE_STATE = { ready: "✓ Helper can see it", stale: "Reload it so the helper can see it", closed: "Not open", off: "Asleep: not the way you picked" };
 let expanded = null; // null: follow the setup progress. true/false: the teacher chose.
 
 async function scanPages() {
@@ -34,7 +34,7 @@ export async function renderGuide(settings, teaching) {
     h(
       "ul",
       { class: "guide-pages" },
-      g.pages.map((p) => h("li", { "data-state": p.state }, h("strong", {}, p.label), h("span", {}, PAGE_STATE[p.state] + (p.taught ? " · taught" : "")))),
+      g.pages.map((p) => h("li", { "data-state": p.state }, h("strong", {}, p.label), h("span", {}, PAGE_STATE[p.state]))),
     ),
     h("h3", {}, g.complete ? "All set up" : `Setup: ${g.doneCount} of ${g.steps.length} done`),
     h(

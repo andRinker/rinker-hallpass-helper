@@ -120,6 +120,11 @@
       return { test, hint: HPH.tokens(dest)[0] };
     }
     if (!name) return { test: () => true };
+    // Built-in steps can use * for a word that varies, like "Create a new * pass".
+    if (name.includes("*")) {
+      const pattern = new RegExp(`^${norm(name).split("*").map((p) => p.replace(/[.+?^${}()|[\]\\]/g, "\\$&")).join(".+")}$`);
+      return { test: (text) => pattern.test(norm(text)), hint: HPH.tokens(name)[0] };
+    }
     return { test: (text) => norm(text) === norm(name), hint: HPH.tokens(name)[0] };
   }
 

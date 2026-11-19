@@ -40,6 +40,8 @@ const watch = (page, name) => {
   page.on("pageerror", (e) => errors.push(`${name}: ${e.message}`));
 };
 
+const fixture = JSON.parse(readFileSync(new URL("./fixture-macros.json", import.meta.url), "utf8"));
+
 try {
   await ctx.route("https://*.goguardian.com/**", (route) =>
     route.fulfill({ contentType: "text/html", body: mockHtml }),
@@ -48,7 +50,7 @@ try {
   await ctx.route("https://teacher.goguardian.com/classrooms/active", (route) =>
     route.fulfill({
       contentType: "text/html",
-      body: `<!doctype html><title>Home</title><button id="openCreate">Create Pass</button><script>document.getElementById("openCreate").onclick = () => window.open("https://hallpass.goguardian.com/window/passes/create", "createpass", "popup,width=520,height=760");</script>`,
+      body: `<!doctype html><title>Home</title><button id="openCreate">Create a new hall pass</button><script>document.getElementById("openCreate").onclick = () => window.open("https://hallpass.goguardian.com/window/passes/create", "createpass", "popup,width=520,height=760");</script>`,
     }),
   );
   const ours = (w) => w.url().endsWith("/background.js");
@@ -85,10 +87,15 @@ try {
       autoEndMinutes: 7,
     }),
   );
+  await until(async () => (await storage("macros")).macros.make?.create, "the built-in steps to be installed");
+  const builtIn = (await storage("macros")).macros;
+  check(builtIn.make.hallpass.steps.length === 9 && builtIn.make.create.steps.length === 10 && builtIn.endVia.hallpass.steps.length === 3 && builtIn.endVia.create.opener, "built in: both ways of making and ending are installed on their own");
+  // Steps recorded on the mock pages stand in for the real built-in ones; macrosOverride keeps the build from replacing them.
+  await sw.evaluate((macros) => chrome.storage.local.set({ macros, macrosOverride: true }), fixture);
 
   const hp = await ctx.newPage();
   watch(hp, "hallpass");
-  await hp.goto("https://hallpass.goguardian.com/");
+  await hp.goto("https://campus.goguardian.com/");
   const panel = await ctx.newPage();
   watch(panel, "panel");
   await panel.setViewportSize({ width: 380, height: 900 });
@@ -103,50 +110,13 @@ try {
   await until(async () => /HallPass website\s*✓ Helper can see it/.test((await guideText()) ?? ""), "guide lists HallPass as seen");
   const guideNow = (await guideText()) ?? "";
   check(
-    /Create Pass window\s*Not open/.test(guideNow) && /Setup: 2 of 5 done/.test(guideNow) && /Teach: Home screen → Create Pass window/.test(guideNow),
+    /Create Pass window\s*Asleep/.test(guideNow) && /Setup: 2 of 3 done/.test(guideNow) && !/Teach/.test(guideNow),
     "guide: shows the pages it can see and the next step",
     guideNow.replace(/\s+/g, " ").slice(0, 300),
   );
 
-  // --- Teach: make a pass ---
-  await panel.getByRole("button", { name: "Teach: HallPass website" }).click();
-  await panel.waitForSelector('#teach[data-mode="recording"]');
-  await hp.click("#newPass");
-  await hp.click('[role=combobox][aria-label="Site"]');
-  await hp.click('[role=option]:text("Middle School South")');
-  await hp.locator(".student-search").pressSequentially("jor", { delay: 60 });
-  await hp.click('.results [role=option]:has-text("Jordan Miller")');
-  await hp.selectOption('select[aria-label="Teacher"]', { label: "Ms. Rivera" });
-  await hp.click('.chip:text("6th Grade Bathroom")');
-  await hp.click('button:text("Create Pass")');
-  await until(async () => /8 steps/.test(await panelText("#teach")), "8 recorded steps");
-  await panel.getByRole("button", { name: "Done" }).click();
-  await panel.waitForSelector('#teach[data-mode="review"]');
-  const roles = await panel.$$eval("#teach .steps select", (els) => els.map((e) => e.value));
-  check(
-    JSON.stringify(roles) === JSON.stringify(["fixed", "fixed", "fixed", "student", "student", "fixed", "destination", "final"]),
-    "teach: guessed the student, destination and final steps",
-    JSON.stringify(roles),
-  );
-  if (shotsDir) await panel.screenshot({ path: `${shotsDir}/review.png`, fullPage: true });
-  await panel.getByRole("button", { name: "Save" }).click();
-  const { macros } = await storage("macros");
-  check(macros.create?.steps.length === 8, "teach: create steps saved");
-  check(!/jordan|miller/i.test(JSON.stringify(macros.create)), "teach: no student name saved in the steps");
-
-  // --- Teach: end a pass (end the real pass made while teaching) ---
-  await panel.getByRole("button", { name: "Teach: end a pass on the HallPass website" }).click();
-  await panel.waitForSelector('#teach[data-mode="recording"]');
-  await hp.click('.card .name:text("Jordan Miller")');
-  await hp.click('.card.expanded button:text("End Pass")');
-  await hp.click('button:text("Yes, end it")');
-  await until(async () => /3 steps/.test(await panelText("#teach")), "3 recorded steps");
-  await panel.getByRole("button", { name: "Done" }).click();
-  await panel.waitForSelector('#teach[data-mode="review"]');
-  const endRoles = await panel.$$eval("#teach .steps select", (els) => els.map((e) => e.value));
-  check(JSON.stringify(endRoles) === JSON.stringify(["student", "fixed", "fixed"]), "teach end: guessed roles", JSON.stringify(endRoles));
-  await panel.getByRole("button", { name: "Save" }).click();
-  await until(async () => /Re-teach: end a pass on the HallPass website/.test(await panelText("#teach")), "taught both");
+  check(await panel.locator("#teach").isHidden(), "no Teach card: the steps are built in");
+  check((await panel.getByRole("button", { name: /Teach/ }).count()) === 0, "no Teach buttons");
 
   // --- Queue: typed name + Enter, then a tapped suggestion; only one goes at a time ---
   const mockPasses = (page = hp) => page.evaluate(() => window.__mock.passes.map((p) => `${p.student.last}:${p.dest}`));
@@ -256,114 +226,33 @@ try {
   );
   check(leaked.length === 0, "outline: no student or staff names", `leaked: ${leaked.join(", ")}`);
   check(/New Pass/.test(outline) && /Search students/.test(outline) && /Active Passes/.test(outline), "outline: keeps the UI words");
-  check(/Site: hallpass\.goguardian\.com/.test(outline), "outline: names the site");
+  check(/Site: campus\.goguardian\.com/.test(outline), "outline: names the site");
   if (shotsDir) {
     await panel.screenshot({ path: `${shotsDir}/panel.png`, fullPage: true });
     console.log(outline.split("\n").slice(0, 60).join("\n"));
   }
   await hp.click("button.cancel");
 
-  // --- Create Pass window: opened from the GoGuardian home screen, in a pop-up on the HallPass site ---
+  // --- Home screen -> Create Pass window lane: the helper clicks Create Pass itself and makes the pass in the window ---
   const home2 = await ctx.newPage();
   watch(home2, "home2");
   await home2.goto("https://teacher.goguardian.com/classrooms/active");
   await home2.bringToFront();
-  await panel.getByRole("button", { name: "Teach: Home screen → Create Pass window" }).click();
-  await panel.waitForSelector('#teach[data-mode="recording"]');
-  check(/part 1 of 2/.test(await panelText("#teach")), "two-part: part 1 watches the home screen");
-  const [popup] = await Promise.all([ctx.waitForEvent("page"), home2.click("#openCreate")]);
-  watch(popup, "popup");
-  await until(() => popup.url().includes("/window/passes/create"), "the pop-up to load");
-  await popup.waitForSelector("#newPass");
-  await until(async () => /part 2 of 2/.test((await panelText("#teach")) ?? ""), "part 2 starts when the window opens");
-  check(true, "two-part: part 2 started by itself when the window opened");
-  await panel.click("#outlineButton");
-  await until(async () => /Page \d of \d/.test(await panel.inputValue("#outlineText")), "outline of the open windows");
-  check(/pop-up window/.test(await panel.inputValue("#outlineText")), "outline: labels the pop-up window");
-  await popup.click("#newPass");
-  await popup.click('[role=combobox][aria-label="Site"]');
-  await popup.click('[role=option]:text("Middle School South")');
-  await popup.locator(".student-search").pressSequentially("jor", { delay: 60 });
-  await popup.click('.results [role=option]:has-text("Jordan Miller")');
-  await popup.selectOption('select[aria-label="Teacher"]', { label: "Ms. Rivera" });
-  await popup.click('.chip:text("6th Grade Bathroom")');
-  await popup.click('button:text("Create Pass")');
-  await until(async () => /8 steps/.test(await panelText("#teach")), "8 steps recorded in the pop-up");
-  await panel.getByRole("button", { name: "Done" }).click();
-  await panel.getByRole("button", { name: "Save" }).click();
-  const popMacro = (await storage("macros")).macros.make.create;
-  check(popMacro?.popup === true && popMacro?.host === "hallpass.goguardian.com", "pop-up: taught steps remember the Create Pass window", JSON.stringify({ host: popMacro?.host, popup: popMacro?.popup }));
-  check(popMacro?.opener?.steps.length === 1 && popMacro.opener.host === "teacher.goguardian.com", "two-part: remembers how the home screen opens the window", JSON.stringify(popMacro?.opener));
-  check(await panel.getByLabel("Use HallPass website").isChecked(), "lane: starts on the first way taught");
+  await ctx.serviceWorkers()[0].evaluate(() => chrome.storage.local.set({ outPasses: [], queue: [] }));
+  check(await panel.getByLabel("Use HallPass website").isChecked(), "lane: starts on the first way");
   await panel.getByLabel("Use Home screen → Create Pass window").check();
-  await until(async () => /Create Pass window is open/.test((await panelText("#hallpass")) ?? ""), "status names the pop-up");
-
-  // The queue sends into the pop-up, not the main HallPass tab; ending still happens in the main tab.
-  await outIs("Jordan Mi.");
-  // Ending was only taught on the HallPass website, so that's the lane to end in; there is no automatic switching.
-  await panel.getByLabel("Use HallPass website").check();
-  await backdate(8);
-  await until(async () => (await mockPasses(hp)).length === 0, "Jordan Mi. ended in the main HallPass tab", 30000);
-  await panel.getByLabel("Use Home screen → Create Pass window").check();
-  await panel.click('#destinations button:text("Nurse")');
-  await panel.fill("#addName", "ava lee");
-  await panel.press("#addName", "Enter");
-  await until(async () => (await mockPasses(popup)).includes("Lee:Nurse"), "Ava sent in the pop-up", 30000);
-  check((await mockPasses(hp)).length === 0, "pop-up: passes are made in the pop-up, not the main HallPass tab", JSON.stringify(await mockPasses(hp)));
-
-  // The guide sees the pop-up while it's open.
-  await until(async () => /Create Pass window\s*✓ Helper can see it/.test((await guideText()) ?? ""), "guide lists the Create Pass window as seen");
-  check(true, "guide: lists the Create Pass window once it's open");
-
-  // With the pop-up closed, the helper opens it from the home screen itself and makes the pass there.
-  await ctx.serviceWorkers()[0].evaluate(async () => {
-    for (const w of await chrome.windows.getAll()) if (w.type === "popup") await chrome.windows.remove(w.id);
-  });
-  await until(async () => !ctx.pages().some((p) => p.url().includes("/window/passes/create")), "the pop-up to be gone");
   await until(async () => /^\s*GoGuardian is open/.test((await panelText("#hallpass")) ?? ""), "status says the home screen can open the window");
-  await ctx.serviceWorkers()[0].evaluate(() => chrome.storage.local.set({ outPasses: [] })); // Ava's pass lived in the window that just closed
+  const hpBefore = (await mockPasses(hp)).length;
   await panel.fill("#addName", "ava lee");
   await panel.press("#addName", "Enter");
-  const popup2 = await until(async () => ctx.pages().find((p) => p.url().includes("/window/passes/create")), "the helper opened the Create Pass window from the home screen", 30000);
+  const popup2 = await until(async () => ctx.pages().find((p) => p.url().includes("/window/passes/create")), "the helper opened the Create Pass window", 30000);
+  watch(popup2, "popup");
   await until(async () => (await mockPasses(popup2)).includes("Lee:Nurse"), "Ava sent in the window the helper opened", 30000);
-  await until(async () => /Create Pass window\s*✓ Helper can see it · taught/.test((await guideText()) ?? ""), "guide lists the Create Pass window as seen and taught");
-  // Teaching, then closing the Create Pass window as the last step (the window takes its recording with it).
-  const closePopups = () =>
-    ctx.serviceWorkers()[0].evaluate(async () => {
-      for (const w of await chrome.windows.getAll()) if (w.type === "popup") await chrome.windows.remove(w.id);
-    });
-  await closePopups();
-  await until(async () => !ctx.pages().some((p) => p.url().includes("/window/passes/create")), "the window to close before re-teaching");
-  await home2.bringToFront();
-  await panel.getByRole("button", { name: "Re-teach: Home screen → Create Pass window" }).click();
-  const [popup3] = await Promise.all([ctx.waitForEvent("page"), home2.click("#openCreate")]);
-  await popup3.waitForSelector("#newPass");
-  await until(async () => /part 2 of 2/.test((await panelText("#teach")) ?? ""), "part 2 starts again");
-  await popup3.click("#newPass");
-  await popup3.click('[role=combobox][aria-label="Site"]');
-  await popup3.click('[role=option]:text("Middle School South")');
-  await popup3.locator(".student-search").pressSequentially("jor", { delay: 60 });
-  await popup3.click('.results [role=option]:has-text("Jordan Miller")');
-  await popup3.selectOption('select[aria-label="Teacher"]', { label: "Ms. Rivera" });
-  await popup3.click('.chip:text("6th Grade Bathroom")');
-  await popup3.click('button:text("Create Pass")');
-  await until(async () => /8 steps/.test(await panelText("#teach")), "8 steps recorded before closing");
-  await closePopups();
-  await panel.waitForSelector('#teach[data-mode="review"]');
-  check((await panel.$$("#teach .steps li")).length === 8, "closing the window ends the recording and keeps all 8 steps");
-  await panel.getByRole("button", { name: "Save" }).click();
-  check((await storage("macros")).macros.make.create.steps.length === 8, "the steps taught before closing the window are saved");
+  check((await mockPasses(hp)).length === hpBefore, "lane: nothing was made on the HallPass website");
+
   // The lane switch: with HallPass chosen, the status talks only about the HallPass website.
   await panel.getByLabel("Use HallPass website").check();
   await until(async () => /^\s*HallPass is open/.test((await panelText("#hallpass")) ?? ""), "status follows the lane switch");
-  await panel.getByLabel("Use Home screen → Create Pass window").check();
-  // Copy taught setup: everything taught, page steps only.
-  await panel.click("#setupButton");
-  const setup = await panel.inputValue("#outlineText");
-  check(/hallpass-helper-taught-setup/.test(setup) && /"makePass"/.test(setup) && /"opener"/.test(setup) && /"endPass"/.test(setup), "setup export: lists making, the opener and ending");
-  check(!/jordan|miller/i.test(setup), "setup export: no student names", setup.slice(0, 200));
-  await panel.click("#closeOutline");
-  check(/Help and setup guide/.test((await guideText()) ?? ""), "guide: folds itself away once everything is set up");
 
   check(errors.length === 0, "no console errors", errors.join("\n     "));
 } catch (err) {

@@ -3,6 +3,7 @@
 // one thing at a time, so the queue, the timers and the Back button never trip over each other.
 import { loadSettings, saveSettings } from "./lib/storage.js";
 import { capitalize, goGuardianTab, hostOf, siteName } from "./lib/tabs.js";
+import { installBuiltin } from "./lib/builtin.js";
 import { END_ORDER, SEND_ORDER, chosenLane, endMethods, kindOfMacro, makeMethods, method, methodPlace, openerPlace } from "./lib/methods.js";
 import { dueToEnd, endsAt, nextToSend } from "./lib/queue.js";
 
@@ -101,7 +102,7 @@ const TRY_LATER = new Set(["busy", "teaching"]);
 function stuckText(result, name) {
   switch (result?.reason) {
     case "ambiguous":
-      return "More than one student in HallPass matches that name.";
+      return "More than one student or button in HallPass matches, so the helper can't tell which is meant.";
     case "stuck":
       return `Got stuck at step ${result.step} (${result.label}). Try re-teaching, or copy the page outline for Claude.`;
     case "not-taught":
@@ -286,3 +287,8 @@ async function endPass(id, { manual = false } = {}) {
 function notify(title, message) {
   chrome.notifications.create({ type: "basic", iconUrl: "icons/icon128.png", title, message });
 }
+
+// The steps for making and ending passes are built in. Written on install, on browser start and whenever this wakes.
+installBuiltin();
+chrome.runtime.onInstalled.addListener(installBuiltin);
+chrome.runtime.onStartup.addListener(installBuiltin);

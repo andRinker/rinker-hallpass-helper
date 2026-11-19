@@ -1,7 +1,12 @@
 // Passes get made on HallPass itself and on GoGuardian's home screen, so the helper works in any
 // GoGuardian tab. Taught steps remember which site and window they were taught in, and go back there.
 
-export const HALLPASS_HOST = "hallpass.goguardian.com";
+export const HALLPASS_HOST = "campus.goguardian.com";
+// GoGuardian moved HallPass to campus.goguardian.com; the old address still counts as HallPass
+// (the Create Pass window may still open there).
+const HALLPASS_HOSTS = [HALLPASS_HOST, "hallpass.goguardian.com"];
+export const isHallpassHost = (host) => HALLPASS_HOSTS.includes(host);
+const sameSite = (a, b) => a === b || (isHallpassHost(a) && isHallpassHost(b));
 export const GOGUARDIAN_TABS = "https://*.goguardian.com/*";
 
 const MARKETING_HOST = "www.goguardian.com";
@@ -24,7 +29,7 @@ export const capitalize = (text) => text.charAt(0).toUpperCase() + text.slice(1)
 // What to call a place in messages.
 export const siteName = (place) => {
   if (place?.kind) return { create: "the Create Pass window", hallpass: "HallPass", home: "GoGuardian" }[place.kind];
-  return place?.popup ? "the Create Pass window" : !place?.host || place.host === HALLPASS_HOST ? "HallPass" : "GoGuardian";
+  return place?.popup ? "the Create Pass window" : !place?.host || isHallpassHost(place.host) ? "HallPass" : "GoGuardian";
 };
 
 export const appTabs = (tabs) =>
@@ -39,10 +44,10 @@ export function pickTab(tabs, place, popupWindowIds = new Set()) {
   if (!place) return recent[0] ?? null;
   // A place with a kind names one of the three pages (see pageKind), and on the same site if it has a host.
   if (place.kind) {
-    return recent.find((t) => pageKind(t, popupWindowIds) === place.kind && (!place.host || hostOf(t.url) === place.host)) ?? null;
+    return recent.find((t) => pageKind(t, popupWindowIds) === place.kind && (!place.host || sameSite(hostOf(t.url), place.host))) ?? null;
   }
   const fits = recent.filter(
-    (t) => (!place.host || hostOf(t.url) === place.host) && (place.popup === undefined || isPopup(t) === place.popup),
+    (t) => (!place.host || sameSite(hostOf(t.url), place.host)) && (place.popup === undefined || isPopup(t) === place.popup),
   );
   return (place.preferPopup && fits.find(isPopup)) || fits[0] || null;
 }
@@ -51,7 +56,7 @@ export function pickTab(tabs, place, popupWindowIds = new Set()) {
 // home screen (any other GoGuardian page in a normal window).
 export function pageKind(tab, popupIds = new Set()) {
   if (popupIds.has(tab.windowId)) return "create";
-  return hostOf(tab.url) === HALLPASS_HOST ? "hallpass" : "home";
+  return isHallpassHost(hostOf(tab.url)) ? "hallpass" : "home";
 }
 
 // Every open GoGuardian tab, including ones in pop-up windows (such as the Create Pass window).

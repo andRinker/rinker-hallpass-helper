@@ -1,6 +1,6 @@
 // Everything lives in this browser's own storage. Nothing is sent anywhere.
 
-export const HALLPASS_URL = "https://hallpass.goguardian.com/";
+export const HALLPASS_URL = "https://campus.goguardian.com/";
 
 export const DEFAULTS = {
   school: "",
