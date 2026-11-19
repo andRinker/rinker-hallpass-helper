@@ -24,6 +24,8 @@ const requestPass = [
   step("type", "student", { classes: INPUT, name: "Select student", role: "combobox", tag: "input", type: "text" }, "{student}"),
   step("click", "student", { classes: OPTION, name: "{student}", role: "option", tag: "div" }),
   step("click", "fixed", { classes: COMBO, context: "Request Pass", name: "Select destination room", role: "combobox", tag: "button", type: "button" }),
+  // The destination list is a search box too: nothing shows until the name is typed.
+  step("type", "destination", { classes: INPUT, name: "Select destination room", role: "combobox", tag: "input", type: "text" }, "{destination}"),
   step("click", "destination", { classes: OPTION, name: "{destination}", role: "option", tag: "div" }),
   step("click", "final", { classes: BUTTON, context: "Request Pass", name: "Submit", role: "button", tag: "button", type: "submit" }),
   step("click", "fixed", { classes: BUTTON, context: "Pass Details", name: "Close", role: "button", tag: "button" }),

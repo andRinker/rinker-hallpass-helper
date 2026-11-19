@@ -26,3 +26,14 @@ test("no student name is built in, and ending picks the student", () => {
   assert.equal(BUILTIN_MACROS.endVia.hallpass.steps[0].role, "student");
   assert.equal(BUILTIN_MACROS.endVia.create.opener.steps[0].role, "student");
 });
+
+test("student and destination boxes are both typed into before picking", () => {
+  for (const macro of Object.values(BUILTIN_MACROS.make)) {
+    for (const who of ["student", "destination"]) {
+      const at = macro.steps.findIndex((s) => s.role === who && s.action === "type");
+      assert.ok(at >= 0, `${who} is typed`);
+      assert.equal(macro.steps[at + 1].action, "click");
+      assert.equal(macro.steps[at + 1].role, who);
+    }
+  }
+});

@@ -89,7 +89,7 @@ try {
   );
   await until(async () => (await storage("macros")).macros.make?.create, "the built-in steps to be installed");
   const builtIn = (await storage("macros")).macros;
-  check(builtIn.make.hallpass.steps.length === 8 && builtIn.make.create.steps.length === 9 && builtIn.endVia.hallpass.steps.length === 1 && builtIn.endVia.create.opener, "built in: both ways of making and ending are installed on their own");
+  check(builtIn.make.hallpass.steps.length === 9 && builtIn.make.create.steps.length === 10 && builtIn.endVia.hallpass.steps.length === 1 && builtIn.endVia.create.opener, "built in: both ways of making and ending are installed on their own");
   // Steps recorded on the mock pages stand in for the real built-in ones; macrosOverride keeps the build from replacing them.
   await sw.evaluate((macros) => chrome.storage.local.set({ macros, macrosOverride: true }), fixture);
 
