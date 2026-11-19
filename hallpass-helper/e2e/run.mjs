@@ -95,7 +95,7 @@ try {
 
   const hp = await ctx.newPage();
   watch(hp, "hallpass");
-  await hp.goto("https://hallpass.goguardian.com/");
+  await hp.goto("https://campus.goguardian.com/");
   const panel = await ctx.newPage();
   watch(panel, "panel");
   await panel.setViewportSize({ width: 380, height: 900 });
@@ -226,7 +226,7 @@ try {
   );
   check(leaked.length === 0, "outline: no student or staff names", `leaked: ${leaked.join(", ")}`);
   check(/New Pass/.test(outline) && /Search students/.test(outline) && /Active Passes/.test(outline), "outline: keeps the UI words");
-  check(/Site: hallpass\.goguardian\.com/.test(outline), "outline: names the site");
+  check(/Site: campus\.goguardian\.com/.test(outline), "outline: names the site");
   if (shotsDir) {
     await panel.screenshot({ path: `${shotsDir}/panel.png`, fullPage: true });
     console.log(outline.split("\n").slice(0, 60).join("\n"));

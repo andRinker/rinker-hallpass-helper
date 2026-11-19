@@ -2,7 +2,7 @@
 // to do. Pure, so it can be tested without a browser.
 
 export const PAGES = [
-  { key: "hallpass", label: "HallPass website", how: "Way 1: open hallpass.goguardian.com/home in a browser tab." },
+  { key: "hallpass", label: "HallPass website", how: "Way 1: open campus.goguardian.com in a browser tab." },
   { key: "home", label: "GoGuardian home screen", how: "Way 2: open teacher.goguardian.com/classrooms/active in a browser tab." },
   { key: "create", label: "Create Pass window", how: "Way 2: it opens when you click Create Pass on the home screen." },
 ];
