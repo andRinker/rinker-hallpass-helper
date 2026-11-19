@@ -108,7 +108,7 @@ export function wordsToCheck(steps, roles, { keep = [], roster = [] } = {}) {
 }
 
 // The finished route: names swapped for {student} and {destination}, and what appeared after each click turned
-// into `done` for the plain "fixed" clicks (the only steps that may be skipped).
+// into `done` for the plain "fixed" clicks that come before the student is picked (the only steps that may be skipped).
 const PLACEHOLDER = /(\{student\}|\{destination\})/;
 
 export function buildRoute({ goal, steps, roles, keep = [], roster = [] }) {
@@ -117,6 +117,7 @@ export function buildRoute({ goal, steps, roles, keep = [], roster = [] }) {
   const clean = (text) =>
     typeof text !== "string" ? text : text.split(PLACEHOLDER).map((part) => (PLACEHOLDER.test(part) ? part : HPH.redact(part, { keep, roster }))).join("");
   let committed = false;
+  let specific = false; // true once the route has picked the student or destination
   return scrubbed.map((step, i) => {
     const { appears, uid, ...rest } = step;
     const out = { ...rest, target: { ...rest.target, context: clean(step.target.context) } };
@@ -125,8 +126,12 @@ export function buildRoute({ goal, steps, roles, keep = [], roster = [] }) {
       committed = true;
       if (goal === "end") out.commit = true;
     }
+    // Only the steps that open things up before anyone is picked may be skipped. What shows after a student is
+    // picked could belong to a different student, so those steps always run.
+    const opening = !specific;
+    if (roles[i] === "student" || roles[i] === "destination") specific = true;
     if (afterCommit) out.optional = true;
-    else if (roles[i] === "fixed" && step.action === "click" && appears?.length) out.done = appears;
+    else if (opening && roles[i] === "fixed" && step.action === "click" && appears?.length) out.done = appears;
     return out;
   });
 }

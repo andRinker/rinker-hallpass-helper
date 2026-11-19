@@ -79,22 +79,24 @@ test("saving is blocked until the route says which step finishes it", () => {
   assert.ok(problems({ goal: "make", lane: "hallpass", roles: [] }).some((p) => p.blocking));
 });
 
-test("a route keeps no names, turns what appeared into skip checks for plain clicks, and marks what comes after the end as optional", () => {
+test("a route keeps no names, skips only the opening clicks that are already done, and treats what comes after the end as optional", () => {
   const steps = [
-    { ...click("Jordan Miller", { context: "Jordan Miller 3 min" }), appears: [target("End Pass")] },
     { ...click("More options"), appears: [target("End Pass"), target("Report")] },
+    { ...click("Jordan Miller", { context: "Jordan Miller 3 min" }), appears: [target("End Pass")] },
+    { ...click("Open details", { context: "Jordan Miller" }), appears: [target("Details")] },
     { ...click("End Pass", { context: "Jordan Miller" }), appears: [target("Close")] },
     click("Close"),
   ];
-  const roles = ["student", "fixed", "final", "fixed"];
+  const roles = ["fixed", "student", "fixed", "final", "fixed"];
   const route = buildRoute({ goal: "end", steps, roles, keep: [], roster });
   assert.ok(!/jordan|miller/i.test(JSON.stringify(route)), JSON.stringify(route));
-  assert.equal(route[0].target.name, "{student}");
-  assert.equal(route[0].done, undefined, "the student click is never skipped");
-  assert.deepEqual(route[1].done.map((d) => d.name), ["End Pass", "Report"]);
-  assert.equal(route[2].commit, true);
-  assert.equal(route[2].done, undefined, "the step that ends the pass is never skipped");
-  assert.equal(route[3].optional, true, "after the pass is ended, only tidying up is left");
+  assert.deepEqual(route[0].done.map((d) => d.name), ["End Pass", "Report"], "before anyone is picked, a click can be skipped when its result is already there");
+  assert.equal(route[1].target.name, "{student}");
+  assert.equal(route[1].done, undefined, "the student click is never skipped");
+  assert.equal(route[2].done, undefined, "after the student is picked, what's showing could be someone else's: always runs");
+  assert.equal(route[3].commit, true);
+  assert.equal(route[3].done, undefined, "the step that ends the pass is never skipped");
+  assert.equal(route[4].optional, true, "after the pass is ended, only tidying up is left");
 });
 
 test("words that aren't ordinary button words are flagged for a look", () => {

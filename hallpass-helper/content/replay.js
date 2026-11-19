@@ -162,7 +162,8 @@
   // --- looking at the screen ---
 
   // `done` is a list of things that must all be on screen; an entry that is itself a list means "any of these".
-  const seenNow = (cond, params) => (Array.isArray(cond) ? cond.some((d) => seenNow(d, params)) : HPH.findTargets(cond, params).length > 0);
+  const seenNow = (cond, params) =>
+    Array.isArray(cond) ? cond.some((d) => seenNow(d, params)) : HPH.findTargets(cond, params, { exactTag: true }).length > 0;
   const allSeen = (conds, params) => !!conds?.length && conds.every((c) => seenNow(c, params));
 
   async function waitUntil(test, timeout) {

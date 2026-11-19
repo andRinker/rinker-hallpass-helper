@@ -59,10 +59,14 @@
   };
 
   let lastScreen = null;
+  let lastControls = "";
+  // Reported when the screen changes, or when more controls show up on it (a pass box opening, say).
   function sendScreen(m = marks()) {
     const id = screenId(m);
-    if (id === lastScreen) return id;
+    const controls = [...m.keys()].sort().join("\n");
+    if (id === lastScreen && controls === lastControls) return id;
     lastScreen = id;
+    lastControls = controls;
     const list = [...m.values()]
       .sort((a, b) => (PRIORITY[a.shown] ?? 4) - (PRIORITY[b.shown] ?? 4))
       .slice(0, 60)
@@ -71,21 +75,32 @@
     return id;
   }
 
-  // What showed up after a click, as things the helper can look for later. Only safe names qualify.
+  // What showed up after a click, as things the helper can look for later. Only safe names qualify. The picture
+  // is taken when the next press starts (or after a moment), so each click only gets credit for its own results.
+  let pendingAfter = []; // [{ uid, before, via, timer }]
+
+  function finishAppears(p) {
+    clearTimeout(p.timer);
+    pendingAfter = pendingAfter.filter((x) => x !== p);
+    if (!watching) return;
+    const after = marks();
+    const appears = [...after.entries()]
+      .filter(([key, x]) => x.safe && !p.before.has(key))
+      .map(([, x]) => ({ role: x.role, name: x.name, tag: x.tag, type: x.type, classes: x.classes, context: "", index: 0, pointer: false, shown: x.shown }))
+      .sort((a, b) => (PRIORITY[a.shown] ?? 4) - (PRIORITY[b.shown] ?? 4))
+      .slice(0, 4)
+      .map(({ shown, ...desc }) => desc);
+    if (appears.length) send({ ev: "appears", uid: p.uid, appears });
+    const to = sendScreen(after);
+    if (to !== p.via.from) send({ ev: "edge", from: p.via.from, to, via: p.via.label });
+  }
+
+  const finishAllAppears = () => [...pendingAfter].forEach(finishAppears);
+
   function learnAppears(uid, before, via) {
-    setTimeout(() => {
-      if (!watching) return;
-      const after = marks();
-      const appears = [...after.entries()]
-        .filter(([key, x]) => x.safe && !before.has(key))
-        .map(([, x]) => ({ role: x.role, name: x.name, tag: x.tag, type: x.type, classes: x.classes, context: "", index: 0, pointer: false, shown: x.shown }))
-        .sort((a, b) => (PRIORITY[a.shown] ?? 4) - (PRIORITY[b.shown] ?? 4))
-        .slice(0, 4)
-        .map(({ shown, ...desc }) => desc);
-      if (appears.length) send({ ev: "appears", uid, appears });
-      const to = sendScreen(after);
-      if (to !== via.from) send({ ev: "edge", from: via.from, to, via: via.label });
-    }, 800);
+    const p = { uid, before, via };
+    p.timer = setTimeout(() => finishAppears(p), 800);
+    pendingAfter.push(p);
   }
 
   // --- steps ---
@@ -134,6 +149,7 @@
 
   function onPointerDown(e) {
     flushPress();
+    finishAllAppears();
     const t = e.target;
     if (e.button !== 0 || ignored(t) || isTextField(t) || t.closest("select")) return;
     const { el, pointer } = HPH.clickableRoot(t);
@@ -208,7 +224,9 @@
     watching = { goal: settings.goal, keep: settings.keep ?? [], roster: settings.roster ?? [] };
     press = null;
     typing = null;
+    pendingAfter = [];
     lastScreen = null;
+    lastControls = "";
     listen(true);
     sendScreen();
   };
@@ -217,6 +235,7 @@
     if (watching) {
       flushPress();
       flushTyping();
+      finishAllAppears();
     }
     press = null;
     watching = null;

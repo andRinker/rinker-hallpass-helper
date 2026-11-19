@@ -167,6 +167,13 @@ function watchingView() {
   ];
 }
 
+// A step as the review shows it: the student's and destination's names are hidden, even from this screen.
+function stepText(step, role) {
+  const hide = role === "student" ? "{student}" : role === "destination" ? "{destination}" : null;
+  if (!hide) return HPH.stepLabel(step);
+  return HPH.stepLabel({ ...step, target: { ...step.target, name: step.action === "click" ? hide : step.target.name }, ...(step.action === "type" ? { value: hide } : {}) });
+}
+
 function reviewView() {
   const { goal, lane, steps, roles } = mode;
   const settings = getSettings();
@@ -183,7 +190,7 @@ function reviewView() {
         h(
           "li",
           {},
-          h("div", { class: "step-label" }, HPH.stepLabel(step), step.appears?.length ? h("span", { class: "muted" }, ` · then ${step.appears.map((a) => a.name).join(", ")} showed up`) : null),
+          h("div", { class: "step-label" }, stepText(step, roles[i]), step.appears?.length ? h("span", { class: "muted" }, ` · then ${step.appears.map((a) => a.name).join(", ")} showed up`) : null),
           odd.includes(i) ? h("div", { class: "problem" }, "This has words that aren't usual button words. If it's a name, set it to The student.") : null,
           h(
             "div",

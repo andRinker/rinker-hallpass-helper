@@ -96,7 +96,8 @@
     const own = (el.innerText ?? "").length;
     let node = el;
     for (let i = 0; node.parentElement && node !== document.body && i < 12; i++, node = node.parentElement) {
-      const siblings = [...node.parentElement.children].filter((c) => c.tagName === node.tagName && c.className === node.className);
+      const like = (c) => c.tagName === node.tagName && (c === node || (!c.classList.length && !node.classList.length) || [...c.classList].some((k) => node.classList.contains(k)));
+      const siblings = [...node.parentElement.children].filter(like);
       if (siblings.length > 1 && (node.innerText ?? "").length > own + 15) return node;
     }
     return null;
@@ -165,11 +166,17 @@
     return { test, hint: HPH.tokens(n)[0] };
   }
 
-  function candidates(desc, { test, hint }) {
+  function candidates(desc, { test, hint }, exactTag = false) {
     const selector = desc.role === "generic" ? desc.tag : (ROLE_SELECTORS[desc.role] ?? `[role="${desc.role}"]`);
     const quick = (el) => !hint || el.hasAttribute("aria-label") || el.hasAttribute("aria-labelledby") || el.matches("input, select, textarea") || el.textContent.toLowerCase().includes(hint);
     let els = [...document.querySelectorAll(selector)].filter(
-      (el) => quick(el) && !el.closest("[data-hph-ui]") && HPH.roleOf(el) === desc.role && test(HPH.accessibleName(el)) && HPH.visible(el),
+      (el) =>
+        quick(el) &&
+        !el.closest("[data-hph-ui]") &&
+        HPH.roleOf(el) === desc.role &&
+        (!exactTag || !desc.tag || el.tagName.toLowerCase() === desc.tag) &&
+        test(HPH.accessibleName(el)) &&
+        HPH.visible(el),
     );
     if (desc.pointer) {
       els = [...new Set(els.filter(isPointer).map((el) => HPH.clickableRoot(el).el))].filter((el) => test(HPH.accessibleName(el)));
@@ -188,11 +195,12 @@
     return s;
   }
 
-  // Best-matching elements for a saved descriptor; more than one means a tie.
-  HPH.findTargets = (desc, params = {}) => {
-    let els = candidates(desc, nameTest(desc.name, params));
+  // Best-matching elements for a saved descriptor; more than one means a tie. With `exactTag`, only elements of
+  // the saved tag count (a search box is not the button that opens it, though both are called "Select student").
+  HPH.findTargets = (desc, params = {}, { exactTag = false } = {}) => {
+    let els = candidates(desc, nameTest(desc.name, params), exactTag);
     const loose = !els.length && looseTest(desc.name);
-    if (loose) els = candidates(desc, loose);
+    if (loose) els = candidates(desc, loose, exactTag);
     // "near" (or a context that mentions the student) keeps only controls that sit in the student's own
     // row, card or pass box, wherever that is in the list.
     if (params.student && (desc.near === "{student}" || desc.context?.includes("{student}"))) {

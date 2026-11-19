@@ -357,6 +357,76 @@ try {
     renderActive();
   });
 
+  // --- Watch mode: show the helper one way of ending a pass, and it learns it as another way ---
+  await setMacros(fixture);
+  await seed([[people.lee, false], [people.cho, false]]);
+  await panel.bringToFront();
+  if (shotsDir) await panel.screenshot({ path: `${shotsDir}/watch-idle.png`, fullPage: true });
+  await panel.getByRole("button", { name: "Watch me end a pass" }).click();
+  await until(async () => /Watching: ending a pass/.test((await panelText("#teach")) ?? ""), "the Watch card says it's watching");
+  await hp.bringToFront();
+  const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+  await hp.click('.card:has-text("Ava Lee")');
+  await pause(300);
+  await hp.click('.card:has-text("Ava Lee") .end');
+  await pause(300);
+  await hp.click('button.yes');
+  await until(async () => (await left()) === "Cho", "the demonstration ended Ava's pass");
+  await pause(1500); // let the page report what showed up after each click
+  if (process.env.E2E_DEBUG) console.log(JSON.stringify(await sw.evaluate(() => chrome.storage.session.get("watch"))).slice(0, 3000));
+  await panel.bringToFront();
+  await until(async () => /3 steps/.test((await panelText("#teach")) ?? ""), "the card counts the steps", 8000);
+  check(/[1-9]\d* screens? seen/.test((await panelText("#teach")) ?? ""), "watch: the screens it saw are counted", (await panelText("#teach")) ?? "");
+  const queueWhileWatching = await storage(["queue", "outPasses"]);
+  check(queueWhileWatching.queue?.length === 0, "watch: nothing was queued or sent while watching");
+  await panel.getByRole("button", { name: "Done" }).click();
+  await until(async () => /Check what it saw: ending a pass/.test((await panelText("#teach")) ?? ""), "the review card");
+  if (shotsDir) await panel.screenshot({ path: `${shotsDir}/watch-review.png`, fullPage: true });
+  const roleOf = (n) => panel.locator(`select[aria-label="What step ${n} is"]`).inputValue();
+  check(
+    (await roleOf(1)) === "student" && (await roleOf(3)) === "final",
+    "watch: it guessed the student step and the step that finishes it",
+    `${await roleOf(1)} / ${await roleOf(2)} / ${await roleOf(3)}`,
+  );
+  await panel.getByRole("button", { name: "Save this way" }).click();
+  await until(async () => (await storage("learned")).learned?.endVia?.hallpass?.length === 1, "the new way was saved");
+  const saved = await storage(["learned", "siteMap"]);
+  const savedText = JSON.stringify(saved);
+  check(!/\b(Ava|Lee|Cho)\b/.test(savedText), "watch: no student names were saved", savedText.slice(0, 400));
+  const route = saved.learned.endVia.hallpass[0].steps;
+  check(route[0].target.name === "{student}" && route[2].role === "final" && route[2].commit === true, "watch: the saved way has the student as a placeholder and says which step finishes it", JSON.stringify(route.map((x) => [x.role, x.target.name])));
+  if (process.env.E2E_DEBUG) console.log(JSON.stringify(saved.siteMap).slice(0, 1500));
+  check(Object.keys(saved.siteMap.screens).length >= 1 && Object.values(saved.siteMap.screens).some((sc) => sc.landmarks.some((l) => l.name === "End Pass")), "watch: the map of screens knows the pass box has an End Pass button");
+  check(!JSON.stringify(saved.siteMap).match(/\b(Ava|Lee|Cho)\b/), "watch: the map of screens has no names");
+
+  // The learned way works on its own, for another student, with the built-in way broken.
+  await setMacros({ ...fixture, endVia: { ...fixture.endVia, hallpass: { ...endHallpass, steps: broken, alternates: [{ steps: route }] } } });
+  await seed([[people.miller, false], [people.cho, false]]);
+  const viaLearned = await hpTab({ type: "end-pass", method: "hallpass", student: people.cho });
+  check(viaLearned?.ok && viaLearned.route === 2 && (await left()) === "Miller", "watch: the learned way ended another student's pass", `${JSON.stringify(viaLearned)} left: ${await left()}`);
+
+  // A look around saves only the map; forgetting empties it.
+  await panel.getByRole("button", { name: "Just look around" }).click();
+  await hp.bringToFront();
+  await hp.click("#newPass");
+  await hp.click("button.cancel");
+  await panel.bringToFront();
+  await panel.getByRole("button", { name: "Done" }).click();
+  await until(async () => /Forget what I showed it/.test((await panelText("#teach")) ?? ""), "back to the start");
+  const copied = await panel.evaluate(async () => {
+    const { learnedReport } = await import("../lib/watch.js");
+    const settings = await chrome.storage.local.get(null);
+    return learnedReport(settings, { version: "test" });
+  });
+  check(!/\b(Ava|Lee|Cho|Jordan|Miller)\b/.test(copied) && /End Pass/.test(copied), "watch: the report to paste into a chat has no names", copied.slice(0, 300));
+  await panel.getByRole("button", { name: "Forget what I showed it" }).click();
+  await until(async () => Object.keys((await storage("learned")).learned ?? {}).length === 0, "learned ways forgotten");
+  check(true, "watch: forgetting clears what was learned");
+  await hp.evaluate(() => {
+    window.__mock.passes = [];
+    renderActive();
+  });
+
   // The queue is back to normal for the lane test below.
   await setMacros(fixture);
   await sw.evaluate(() => chrome.storage.local.set({ queuePaused: false, queue: [], outPasses: [] }));
@@ -381,6 +451,92 @@ try {
   // The lane switch: with HallPass chosen, the status talks only about the HallPass website.
   await panel.getByLabel("Use HallPass website").check();
   await until(async () => /^\s*HallPass is open/.test((await panelText("#hallpass")) ?? ""), "status follows the lane switch");
+
+  // --- The built-in steps, on a page shaped like the real HallPass ---
+  // (Search-box dropdowns, a Request Pass dialog, a Pass Details panel.) Checks every state the built-in
+  // steps are meant to cope with, not just a clean start.
+  const builtinHtml = readFileSync(path.join(here, "mock-builtin.html"), "utf8");
+  await ctx.route("https://campus.goguardian.com/builtin", (route) => route.fulfill({ contentType: "text/html", body: builtinHtml }));
+  const bp = await ctx.newPage();
+  watch(bp, "builtin");
+  await bp.goto("https://campus.goguardian.com/builtin");
+  await panel.bringToFront();
+  const builtinMacros = await panel.evaluate(async () => (await import("../lib/builtin.js")).BUILTIN_MACROS);
+  await setMacros(builtinMacros);
+  await sw.evaluate(() => chrome.storage.local.set({ queuePaused: true, queue: [], outPasses: [] }));
+  await bp.bringToFront();
+  const bTab = (msg) =>
+    sw.evaluate(async (m) => {
+      const [t] = await chrome.tabs.query({ url: "https://campus.goguardian.com/builtin" });
+      return chrome.tabs.sendMessage(t.id, m);
+    }, msg);
+  const bState = () => bp.evaluate(() => window.__mock.passes.map((p) => `${p.student}:${p.dest}`).join());
+  const bReset = (passes = []) =>
+    bp.evaluate((rows) => {
+      window.__mock.passes = rows.map(([student, dest]) => ({ student, dest }));
+      window.__mock.log = [];
+      document.querySelector("#host").innerHTML = "";
+      renderList();
+    }, passes);
+  const bMake = (name = "Ava Lee", destination = "Nurse") => {
+    const [first, last] = name.split(" ");
+    return bTab({ type: "make-pass", method: "hallpass", student: { first, last }, destination });
+  };
+  const bEnd = (name = "Ava Lee") => {
+    const [first, last] = name.split(" ");
+    return bTab({ type: "end-pass", method: "hallpass", student: { first, last } });
+  };
+
+  let r = await bMake();
+  check(r?.ok && (await bState()) === "Ava Lee:Nurse", "built-in make: from a clean page", JSON.stringify(r));
+  await bReset();
+  await bp.click("#newPass");
+  r = await bMake();
+  check(r?.ok && (await bState()) === "Ava Lee:Nurse" && r.notes?.some((n) => /New Pass/.test(n)), "built-in make: form already open, New Pass is not clicked again", JSON.stringify(r));
+  await bReset();
+  await bp.click("#newPass");
+  await bp.click('[aria-label="Request Pass"] .stu button');
+  await bp.locator('[aria-label="Request Pass"] .stu input').pressSequentially("ava");
+  await bp.click('[role=option]:has-text("Ava Lee")');
+  r = await bMake();
+  check(r?.ok && (await bState()) === "Ava Lee:Nurse" && (r.notes ?? []).filter((n) => /Skipped/.test(n)).length >= 4, "built-in make: student already picked in the open form, picked steps skipped", JSON.stringify(r));
+  await bReset([["Jordan Miller", "Library"]]);
+  await bp.click('#list button');
+  r = await bMake();
+  check(r?.ok && (await bState()) === "Jordan Miller:Library,Ava Lee:Nurse", "built-in make: a Pass Details panel left open is closed first", JSON.stringify(r));
+  await bReset([["Jordan Miller", "Library"]]);
+  r = await bMake("Ava Lee", "Library");
+  check(r?.ok && (await bState()) === "Jordan Miller:Library,Ava Lee:Library", "built-in make: another destination, with other passes already out", JSON.stringify(r));
+
+  await bReset([["Jordan Miller", "Library"], ["Sam Cho", "Nurse"], ["Ava Lee", "Nurse"]]);
+  r = await bEnd();
+  check(r?.ok && (await bState()) === "Jordan Miller:Library,Sam Cho:Nurse", "built-in end: pass box closed, student third in the list", JSON.stringify(r));
+  await bReset([["Jordan Miller", "Library"], ["Ava Lee", "Nurse"]]);
+  await bp.click("#list li:nth-child(2) button");
+  r = await bEnd();
+  check(r?.ok && r.route === 1 && (await bState()) === "Jordan Miller:Library", "built-in end: pass box already open, End Pass clicked straight away", JSON.stringify(r));
+  await bReset([["Jordan Miller", "Library"], ["Ava Lee", "Nurse"]]);
+  await bp.click("#list li:nth-child(1) button");
+  r = await bEnd();
+  check(r?.ok && (await bState()) === "Jordan Miller:Library", "built-in end: another student's pass box is open, so theirs isn't ended by mistake", JSON.stringify(r));
+  check(!(await bp.evaluate(() => window.__mock.log.join())).includes("ended Jordan"), "built-in end: the other student's pass was left alone");
+  await setMacros(fixture);
+  await bp.close();
+
+  // The "try the other way" switch: with it on, a way that gets stuck before anything is made hands over to the other one.
+  const brokenMake = { ...fixture.make.hallpass, steps: fixture.make.hallpass.steps.map((st, i) => (i === 0 ? { ...st, target: { ...st.target, name: "No Such Button" } } : st)) };
+  await setMacros({ ...fixture, make: { ...fixture.make, hallpass: brokenMake } });
+  await sw.evaluate(() => chrome.storage.local.set({ outPasses: [], queue: [], queuePaused: false, queueProblem: "" }));
+  check(!(await panel.getByLabel("If this way gets stuck, try the other way").isChecked()), "fallback: off unless you turn it on");
+  await panel.getByLabel("If this way gets stuck, try the other way").check();
+  const hpBefore2 = (await mockPasses(hp)).length;
+  await panel.fill("#addName", "priya shah");
+  await panel.press("#addName", "Enter");
+  await until(async () => (await mockPasses(popup2)).includes("Shah:Nurse"), "Priya sent the other way after the chosen way got stuck", 90000);
+  check((await mockPasses(hp)).length === hpBefore2 && (await storage("queuePaused")).queuePaused === false, "fallback: the chosen way got stuck, the other way made the pass, nothing paused");
+  await until(async () => (await storage("lastRun")).lastRun?.ok === true, "the last try is saved", 20000).catch(() => {});
+  const run = (await storage("lastRun")).lastRun;
+  check(run?.goal === "make" && run.ok === true && run.lane === "create", "last try: remembers which way finished the job", JSON.stringify(run));
 
   check(errors.length === 0, "no console errors", errors.join("\n     "));
 } catch (err) {
