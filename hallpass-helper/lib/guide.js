@@ -1,22 +1,27 @@
 // The setup guide in the side panel: which GoGuardian pages the helper can see, and the next thing
 // to do. Pure, so it can be tested without a browser.
-import { METHODS, endMethods, makeMethods } from "./methods.js";
+
+import { chosenLane } from "./methods.js";
 
 export const PAGES = [
-  { key: "hallpass", label: "HallPass website", how: "Way 1: open hallpass.goguardian.com/home in a browser tab." },
+  { key: "hallpass", label: "HallPass website", how: "Way 1: open campus.goguardian.com in a browser tab." },
   { key: "home", label: "GoGuardian home screen", how: "Way 2: open teacher.goguardian.com/classrooms/active in a browser tab." },
   { key: "create", label: "Create Pass window", how: "Way 2: it opens when you click Create Pass on the home screen." },
 ];
 
-// pages: { hallpass, home, create }, each "closed" | "stale" | "ready".
-const open = (pages) => PAGES.filter((p) => pages[p.key] !== "closed");
+// The pages each way needs open ahead of time. The Create Pass window isn't one: the helper opens it
+// from the home screen when it makes a pass, so it's never required. The way not chosen is asleep and
+// none of its pages are needed.
+const NEEDED = { hallpass: ["hallpass"], create: ["home"] };
 
-export function guide({ settings, pages, teaching = false }) {
+// pages: { hallpass, home, create }, each "closed" | "stale" | "ready".
+
+export function guide({ settings, pages }) {
   const { macros = {}, destinations = [], school = "", teacherName = "", queue = [], outPasses = [] } = settings;
-  const seen = open(pages);
+  const lane = chosenLane(settings);
+  const needed = PAGES.filter((p) => NEEDED[lane].includes(p.key));
+  const seen = needed.filter((p) => pages[p.key] !== "closed");
   const stale = seen.filter((p) => pages[p.key] === "stale");
-  const taught = makeMethods(macros);
-  const untaught = METHODS.filter((m) => !taught[m.kind]);
 
   const steps = [
     {
@@ -24,9 +29,9 @@ export function guide({ settings, pages, teaching = false }) {
       title: "Open the page where you make passes",
       done: seen.length > 0 && stale.length === 0,
       lines: [
-        "A pass can be made two ways, over three pages. The helper works with either way:",
-        ...PAGES.map((p) => `${p.label}: ${p.how}`),
-        "Teach the helper each way you make passes. It then uses whichever taught page is open.",
+        "You're making passes through the switch's chosen way, so only these pages are needed:",
+        ...needed.map((p) => `${p.label}: ${p.how}`),
+        "To use the other way instead, change the switch under the status line. The way you don't pick sleeps and its pages aren't needed.",
         ...stale.map((p) => `Reload the ${p.label}. The helper can't see it yet.`),
       ],
     },
@@ -39,35 +44,6 @@ export function guide({ settings, pages, teaching = false }) {
         "Type your school, your name, your room and your destinations exactly as GoGuardian shows them.",
         "Add your class lists too if you'd like name suggestions.",
       ],
-    },
-    {
-      id: "make",
-      title: "Teach it to make a pass",
-      done: Object.keys(taught).length > 0,
-      lines: teaching
-        ? [
-            "The helper is watching. Make one real pass on the page named at the top of the Teach card, the way you always do.",
-            "Go all the way through clicking Create.",
-            "Then click Done below, check the guesses and Save.",
-          ]
-        : [
-            "The Teach card below has one button for each way a pass is made. Each button names the page it watches.",
-            ...untaught.map((m) => `Teach: ${m.short} — ${m.use}`),
-            "Open that page first, click its Teach button, then make one real pass all the way through Create. You can end it right after.",
-            "Click Done, check the guesses and Save. Then do the next way you use, if any.",
-          ],
-    },
-    {
-      id: "end",
-      title: "Teach it to end a pass",
-      done: Object.keys(endMethods(macros)).length > 0,
-      lines: teaching
-        ? ["The helper is watching. End a pass the way you always do, including any \"Are you sure?\" step.", "Then click Done."]
-        : [
-            "The Teach card has an end-a-pass button for each way: on the HallPass website, or from the home screen → pop-up. Use the one you normally use.",
-            "End a pass that's out, the way you always do, including any \"Are you sure?\" step. From the home screen, part 1 is the button that opens the small window.",
-            "Click Done, then Save. Teach the other way too if you use it.",
-          ],
     },
     {
       id: "send",
@@ -83,7 +59,7 @@ export function guide({ settings, pages, teaching = false }) {
     current,
     doneCount: steps.filter((s) => s.done).length,
     complete: current === -1,
-    // The home screen counts as taught once the helper knows how to click Create Pass there.
-    pages: PAGES.map((p) => ({ ...p, state: pages[p.key], taught: Boolean(p.key === "home" ? taught.create?.opener : taught[p.key]) })),
+    lane,
+    pages: PAGES.map((p) => ({ ...p, state: needed.includes(p) ? pages[p.key] : p.key === "create" && lane === "create" ? pages[p.key] : "off" })),
   };
 }

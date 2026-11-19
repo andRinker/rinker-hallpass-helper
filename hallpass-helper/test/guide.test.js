@@ -13,40 +13,22 @@ test("with nothing open, the first step is to open a page", () => {
 });
 
 test("a page the helper can't see yet is asked to be reloaded", () => {
-  const g = guide({ settings, pages: { ...closed, home: "stale" } });
+  const g = guide({ settings: { ...settings, lane: "create" }, pages: { ...closed, home: "stale" } });
   assert.equal(g.steps[0].done, false);
   assert.ok(g.steps[0].lines.some((l) => /Reload the GoGuardian home screen/.test(l)));
 });
 
 test("steps are ticked off in order as things get set up", () => {
   const ready = { ...closed, hallpass: "ready" };
-  assert.equal(guide({ settings: {}, pages: ready }).steps[guide({ settings: {}, pages: ready }).current].id, "settings");
-  assert.equal(guide({ settings, pages: ready }).steps[guide({ settings, pages: ready }).current].id, "make");
-  const made = { ...settings, macros: { create: { steps: [] } } };
-  assert.equal(guide({ settings: made, pages: ready }).steps[guide({ settings: made, pages: ready }).current].id, "end");
-  const taught = { ...settings, macros: { create: {}, end: {} } };
-  assert.equal(guide({ settings: taught, pages: ready }).steps[guide({ settings: taught, pages: ready }).current].id, "send");
-  const sent = { ...taught, queue: [{}] };
-  const g = guide({ settings: sent, pages: ready });
+  const next = (st) => {
+    const g = guide({ settings: st, pages: ready });
+    return g.steps[g.current].id;
+  };
+  assert.equal(next({}), "settings");
+  assert.equal(next(settings), "send");
+  const g = guide({ settings: { ...settings, queue: [{}] }, pages: ready });
   assert.equal(g.complete, true);
-  assert.equal(g.doneCount, 5);
-});
-
-test("the make-a-pass step lists the ways not taught yet, and counts any taught way as done", () => {
-  const g = guide({ settings, pages: { ...closed, home: "ready" } });
-  assert.ok(g.steps[2].lines.some((l) => /^Teach: Home screen → Create Pass window/.test(l)));
-  const some = guide({ settings: { ...settings, macros: { make: { create: {} } } }, pages: closed });
-  assert.equal(some.steps[2].done, true);
-  assert.ok(!some.steps[2].lines.some((l) => /^Teach: Home screen → Create Pass window/.test(l)));
-  assert.equal(some.pages.find((p) => p.key === "create").taught, true);
-  assert.equal(some.pages.find((p) => p.key === "home").taught, false);
-  const opened = guide({ settings: { ...settings, macros: { make: { create: { opener: {} } } } }, pages: closed });
-  assert.equal(opened.pages.find((p) => p.key === "home").taught, true);
-});
-
-test("while teaching, the steps say the helper is watching", () => {
-  const g = guide({ settings, pages: { ...closed, hallpass: "ready" }, teaching: true });
-  assert.ok(g.steps[2].lines[0].startsWith("The helper is watching"));
+  assert.equal(g.doneCount, 3);
 });
 
 test("pageKind tells the three GoGuardian pages apart", () => {
@@ -54,4 +36,14 @@ test("pageKind tells the three GoGuardian pages apart", () => {
   assert.equal(pageKind({ url: "https://hallpass.goguardian.com/x", windowId: 1 }, popups), "hallpass");
   assert.equal(pageKind({ url: "https://teacher.goguardian.com/", windowId: 1 }, popups), "home");
   assert.equal(pageKind({ url: "https://hallpass.goguardian.com/s/passes/create", windowId: 9 }, popups), "create");
+});
+
+test("the way you didn't pick sleeps: its pages aren't needed", () => {
+  const hp = guide({ settings: { ...settings, lane: "hallpass" }, pages: { ...closed, hallpass: "ready", home: "stale" } });
+  assert.equal(hp.steps[0].done, true);
+  assert.equal(hp.pages.find((p) => p.key === "home").state, "off");
+  const home = guide({ settings: { ...settings, lane: "create" }, pages: { ...closed, home: "ready" } });
+  assert.equal(home.steps[0].done, true);
+  assert.equal(home.pages.find((p) => p.key === "hallpass").state, "off");
+  assert.equal(home.pages.find((p) => p.key === "create").state, "closed");
 });

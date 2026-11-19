@@ -9,9 +9,9 @@ export const METHODS = [
     kind: "hallpass",
     name: "HallPass website",
     short: "HallPass website",
-    where: "hallpass.goguardian.com/home",
-    use: "You make passes on the HallPass website (hallpass.goguardian.com/home), in a normal browser tab.",
-    closed: "Open the HallPass website (hallpass.goguardian.com/home) in a browser tab first.",
+    where: "campus.goguardian.com",
+    use: "You make passes on the HallPass website (campus.goguardian.com), in a normal browser tab.",
+    closed: "Open the HallPass website (campus.goguardian.com) in a browser tab first.",
     steps: [
       "Stay on your HallPass tab. Make one real pass there, the way you always do, for any student.",
       "Go all the way through clicking Create.",

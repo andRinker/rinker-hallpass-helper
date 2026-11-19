@@ -3,9 +3,9 @@ import { alreadyListed, queueEntry, studentFromText, suggestions } from "../lib/
 import { allGoGuardianTabs, capitalize, hostOf } from "../lib/tabs.js";
 import { METHODS, SEND_ORDER, chosenLane, endMethods, makeMethods, method, methodPlace, openerPlace } from "../lib/methods.js";
 import { $, askHallPass, hallpassTab, h, toast } from "./shared.js";
-import { taughtSetup } from "../lib/export.js";
+import { installBuiltin } from "../lib/builtin.js";
 import { renderGuide } from "./guide.js";
-import { initTeach, renderTeach } from "./teach.js";
+import { initWatch, renderWatch } from "./watch.js";
 import { initWhosOut, renderWhosOut } from "./whos-out.js";
 
 $("version").textContent = chrome.runtime.getManifest().version_name ?? chrome.runtime.getManifest().version;
@@ -19,8 +19,9 @@ async function refresh() {
   renderDestinations();
   renderSuggestions();
   renderQueue();
-  renderTeach();
+  renderWatch();
   renderWhosOut();
+  renderLastRun();
   renderLane();
   renderHallPass();
 }
@@ -145,6 +146,18 @@ function renderQueue() {
   );
 }
 
+// What the helper did the last time it made or ended a pass: which way it used and what it skipped or cleared.
+function renderLastRun() {
+  const run = settings.lastRun;
+  $("lastRun").hidden = !run;
+  if (!run) return;
+  const what = run.goal === "make" ? "making a pass" : "ending a pass";
+  const minutes = Math.max(0, Math.round((Date.now() - run.at) / 60000));
+  const result = run.ok ? "worked" : `stuck at step ${run.step ?? "?"}${run.label ? ` (${run.label})` : ""}`;
+  $("lastRunSummary").textContent = `Last try, ${what}: ${result}${run.routes > 1 ? `, way ${run.route} of ${run.routes}` : ""}, ${minutes < 1 ? "just now" : `${minutes} min ago`}`;
+  $("lastRunNotes").replaceChildren(...(run.notes?.length ? run.notes : ["Nothing needed skipping or clearing."]).map((n) => h("li", {}, n)));
+}
+
 $("pause").addEventListener("click", async () => {
   const { queuePaused } = await loadSettings();
   await saveSettings(queuePaused ? { queuePaused: false, queueProblem: "" } : { queuePaused: true });
@@ -166,7 +179,13 @@ function renderLane() {
       const missing = [made[m.kind] ? null : "making", ended[m.kind] ? null : "ending"].filter(Boolean);
       return h("label", {}, input, ` ${m.short}`, missing.length ? h("div", { class: "hint" }, `Not taught yet: ${missing.join(" and ")}`) : null);
     }),
-    h("p", { class: "hint" }, "The helper uses only this way and never switches by itself."),
+    (() => {
+      const box = h("input", { type: "checkbox", "aria-label": "If this way gets stuck, try the other way" });
+      box.checked = !!settings.fallback;
+      box.addEventListener("change", () => saveSettings({ fallback: box.checked }));
+      return h("label", { class: "fallback" }, box, " If this way gets stuck before anything is made, try the other way");
+    })(),
+    h("p", { class: "hint" }, settings.fallback ? "The helper uses this way first and only tries the other when it's stuck." : "The helper uses only this way and never switches by itself."),
   );
 }
 
@@ -210,7 +229,7 @@ async function renderHallPass() {
   $("hallpass").querySelector(".text").textContent = messages[state];
   $("openHallpass").hidden = state === "ready" || !target;
   $("openHallpass").textContent = state === "stale" ? "Reload it" : `Open ${target?.name ?? "HallPass"}`;
-  renderGuide(settings, $("teach").dataset.mode === "recording");
+  renderGuide(settings, $("teach").dataset.mode === "watching");
 }
 
 // Outlines every open GoGuardian tab, pop-up windows included. A pop-up (like the Create Pass window)
@@ -248,21 +267,8 @@ $("openHallpass").addEventListener("click", async () => {
     chrome.tabs.create({ url: host ? `https://${host}/` : HALLPASS_URL, pinned: true });
   }
 });
-const OUTLINE_HINT = $("outlineHint").textContent;
-$("outlineButton").addEventListener("click", () => {
-  $("outlineHint").textContent = OUTLINE_HINT;
-  showOutline();
-});
-// Everything the helper was taught, as text for Claude. Page steps only; names are hidden.
-function showSetup() {
-  const taught = taughtSetup(settings, globalThis.HallPassHelper.redact, chrome.runtime.getManifest().version_name ?? "");
-  $("outlineHint").textContent = 'This is everything you taught: page steps only. Student and staff names show up as "Xxxxx". Look it over, click Copy, and paste it into your chat with Claude.';
-  $("outlineText").value = taught;
-  $("outlineBox").hidden = false;
-  $("outlineBox").scrollIntoView?.({ block: "nearest" });
-}
-$("setupButton").addEventListener("click", showSetup);
-document.addEventListener("show-setup", showSetup);
+$("outlineButton").addEventListener("click", showOutline);
+
 $("closeOutline").addEventListener("click", () => ($("outlineBox").hidden = true));
 $("copyOutline").addEventListener("click", async () => {
   await navigator.clipboard.writeText($("outlineText").value);
@@ -277,8 +283,9 @@ setInterval(() => {
   renderHallPass();
 }, 15000);
 
+await installBuiltin();
 settings = await loadSettings();
 const getSettings = () => settings;
 initWhosOut(getSettings);
-initTeach(getSettings);
+initWatch(getSettings);
 refresh();

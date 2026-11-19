@@ -21,7 +21,7 @@ test("makeMethods merges the old single macro without overriding a newer one", (
 
 test("each way runs only where it was taught", () => {
   assert.deepEqual(methodPlace("create", {}), { kind: "create", host: undefined });
-  assert.equal(methodPlace("hallpass", {}).host, "hallpass.goguardian.com");
+  assert.equal(methodPlace("hallpass", {}).host, "campus.goguardian.com");
   assert.deepEqual(openerPlace({ opener: { host: "teacher.goguardian.com" } }), { kind: "home", host: "teacher.goguardian.com" });
   assert.equal(openerPlace({}), null);
 });

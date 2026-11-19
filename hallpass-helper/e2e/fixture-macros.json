@@ -1,0 +1,532 @@
+{
+ "create": {
+  "host": "hallpass.goguardian.com",
+  "kind": "create",
+  "opener": {
+   "host": "teacher.goguardian.com",
+   "steps": [
+    {
+     "action": "click",
+     "role": "fixed",
+     "target": {
+      "classes": [],
+      "context": "",
+      "id": "openCreate",
+      "index": 0,
+      "name": "Create Pass",
+      "pointer": false,
+      "role": "button",
+      "tag": "button"
+     }
+    }
+   ]
+  },
+  "popup": true,
+  "steps": [
+   {
+    "action": "click",
+    "role": "fixed",
+    "target": {
+     "classes": [
+      "new-pass"
+     ],
+     "context": "",
+     "id": "newPass",
+     "index": 0,
+     "name": "New Pass",
+     "pointer": true,
+     "role": "generic",
+     "tag": "div"
+    }
+   },
+   {
+    "action": "click",
+    "role": "fixed",
+    "target": {
+     "classes": [
+      "site-picker"
+     ],
+     "context": "Create Pass",
+     "index": 0,
+     "name": "Site",
+     "pointer": false,
+     "role": "combobox",
+     "tag": "div"
+    }
+   },
+   {
+    "action": "click",
+    "role": "fixed",
+    "target": {
+     "classes": [],
+     "context": "Create Pass",
+     "index": 0,
+     "name": "Middle School South",
+     "pointer": false,
+     "role": "option",
+     "tag": "li"
+    }
+   },
+   {
+    "action": "type",
+    "role": "student",
+    "target": {
+     "classes": [
+      "student-search"
+     ],
+     "context": "Create Pass",
+     "index": 0,
+     "name": "Search students",
+     "pointer": false,
+     "role": "textbox",
+     "tag": "input"
+    },
+    "value": "{student}"
+   },
+   {
+    "action": "click",
+    "role": "student",
+    "target": {
+     "classes": [],
+     "context": "Create Pass",
+     "index": 0,
+     "name": "{student}",
+     "pointer": false,
+     "role": "option",
+     "tag": "li"
+    }
+   },
+   {
+    "action": "select",
+    "role": "fixed",
+    "target": {
+     "classes": [],
+     "context": "Create Pass",
+     "index": 0,
+     "name": "Teacher",
+     "pointer": false,
+     "role": "combobox",
+     "tag": "select"
+    },
+    "value": "Ms. Rivera"
+   },
+   {
+    "action": "click",
+    "role": "destination",
+    "target": {
+     "classes": [
+      "chip"
+     ],
+     "context": "Create Pass",
+     "index": 0,
+     "name": "{destination}",
+     "pointer": true,
+     "role": "generic",
+     "tag": "span"
+    }
+   },
+   {
+    "action": "click",
+    "role": "final",
+    "target": {
+     "classes": [
+      "create"
+     ],
+     "context": "Create Pass",
+     "index": 0,
+     "name": "Create Pass",
+     "pointer": false,
+     "role": "button",
+     "tag": "button",
+     "type": "button"
+    }
+   }
+  ],
+  "taughtAt": 1791907342461
+ },
+ "end": {
+  "host": "hallpass.goguardian.com",
+  "kind": "hallpass",
+  "popup": false,
+  "steps": [
+   {
+    "action": "click",
+    "role": "student",
+    "target": {
+     "classes": [
+      "card"
+     ],
+     "context": "",
+     "index": 0,
+     "name": "{student}",
+     "pointer": true,
+     "role": "generic",
+     "tag": "div"
+    }
+   },
+   {
+    "action": "click",
+    "role": "fixed",
+    "target": {
+     "classes": [
+      "end"
+     ],
+     "context": "{student} 6th Grade Bathroom 0 min End Pass",
+     "index": 0,
+     "name": "End Pass",
+     "pointer": false,
+     "role": "button",
+     "tag": "button",
+     "type": "button"
+    }
+   },
+   {
+    "action": "click",
+    "role": "fixed",
+    "target": {
+     "classes": [
+      "yes"
+     ],
+     "context": "End pass?",
+     "index": 0,
+     "name": "Yes, end it",
+     "pointer": false,
+     "role": "button",
+     "tag": "button",
+     "type": "button"
+    }
+   }
+  ],
+  "taughtAt": 1791907263547
+ },
+ "endVia": {
+  "hallpass": {
+   "host": "hallpass.goguardian.com",
+   "kind": "hallpass",
+   "popup": false,
+   "steps": [
+    {
+     "action": "click",
+     "role": "student",
+     "target": {
+      "classes": [
+       "card"
+      ],
+      "context": "",
+      "index": 0,
+      "name": "{student}",
+      "pointer": true,
+      "role": "generic",
+      "tag": "div"
+     }
+    },
+    {
+     "action": "click",
+     "role": "fixed",
+     "target": {
+      "classes": [
+       "end"
+      ],
+      "context": "{student} 6th Grade Bathroom 0 min End Pass",
+      "index": 0,
+      "name": "End Pass",
+      "pointer": false,
+      "role": "button",
+      "tag": "button",
+      "type": "button"
+     }
+    },
+    {
+     "action": "click",
+     "role": "fixed",
+     "target": {
+      "classes": [
+       "yes"
+      ],
+      "context": "End pass?",
+      "index": 0,
+      "name": "Yes, end it",
+      "pointer": false,
+      "role": "button",
+      "tag": "button",
+      "type": "button"
+     }
+    }
+   ],
+   "taughtAt": 1791907263547
+  }
+ },
+ "make": {
+  "create": {
+   "host": "hallpass.goguardian.com",
+   "kind": "create",
+   "opener": {
+    "host": "teacher.goguardian.com",
+    "steps": [
+     {
+      "action": "click",
+      "role": "fixed",
+      "target": {
+       "classes": [],
+       "context": "",
+       "id": "openCreate",
+       "index": 0,
+       "name": "Create a new * pass",
+       "pointer": false,
+       "role": "button",
+       "tag": "button"
+      }
+     }
+    ]
+   },
+   "popup": true,
+   "steps": [
+    {
+     "action": "click",
+     "role": "fixed",
+     "target": {
+      "classes": [
+       "new-pass"
+      ],
+      "context": "",
+      "id": "newPass",
+      "index": 0,
+      "name": "New Pass",
+      "pointer": true,
+      "role": "generic",
+      "tag": "div"
+     }
+    },
+    {
+     "action": "click",
+     "role": "fixed",
+     "target": {
+      "classes": [
+       "site-picker"
+      ],
+      "context": "Create Pass",
+      "index": 0,
+      "name": "Site",
+      "pointer": false,
+      "role": "combobox",
+      "tag": "div"
+     }
+    },
+    {
+     "action": "click",
+     "role": "fixed",
+     "target": {
+      "classes": [],
+      "context": "Create Pass",
+      "index": 0,
+      "name": "Middle School South",
+      "pointer": false,
+      "role": "option",
+      "tag": "li"
+     }
+    },
+    {
+     "action": "type",
+     "role": "student",
+     "target": {
+      "classes": [
+       "student-search"
+      ],
+      "context": "Create Pass",
+      "index": 0,
+      "name": "Search students",
+      "pointer": false,
+      "role": "textbox",
+      "tag": "input"
+     },
+     "value": "{student}"
+    },
+    {
+     "action": "click",
+     "role": "student",
+     "target": {
+      "classes": [],
+      "context": "Create Pass",
+      "index": 0,
+      "name": "{student}",
+      "pointer": false,
+      "role": "option",
+      "tag": "li"
+     }
+    },
+    {
+     "action": "select",
+     "role": "fixed",
+     "target": {
+      "classes": [],
+      "context": "Create Pass",
+      "index": 0,
+      "name": "Teacher",
+      "pointer": false,
+      "role": "combobox",
+      "tag": "select"
+     },
+     "value": "Ms. Rivera"
+    },
+    {
+     "action": "click",
+     "role": "destination",
+     "target": {
+      "classes": [
+       "chip"
+      ],
+      "context": "Create Pass",
+      "index": 0,
+      "name": "{destination}",
+      "pointer": true,
+      "role": "generic",
+      "tag": "span"
+     }
+    },
+    {
+     "action": "click",
+     "role": "final",
+     "target": {
+      "classes": [
+       "create"
+      ],
+      "context": "Create Pass",
+      "index": 0,
+      "name": "Create Pass",
+      "pointer": false,
+      "role": "button",
+      "tag": "button",
+      "type": "button"
+     }
+    }
+   ],
+   "taughtAt": 1791907342461
+  },
+  "hallpass": {
+   "host": "hallpass.goguardian.com",
+   "kind": "hallpass",
+   "popup": false,
+   "steps": [
+    {
+     "action": "click",
+     "role": "fixed",
+     "target": {
+      "classes": [
+       "new-pass"
+      ],
+      "context": "",
+      "id": "newPass",
+      "index": 0,
+      "name": "New Pass",
+      "pointer": true,
+      "role": "generic",
+      "tag": "div"
+     }
+    },
+    {
+     "action": "click",
+     "role": "fixed",
+     "target": {
+      "classes": [
+       "site-picker"
+      ],
+      "context": "Create Pass",
+      "index": 0,
+      "name": "Site",
+      "pointer": false,
+      "role": "combobox",
+      "tag": "div"
+     }
+    },
+    {
+     "action": "click",
+     "role": "fixed",
+     "target": {
+      "classes": [],
+      "context": "Create Pass",
+      "index": 0,
+      "name": "Middle School South",
+      "pointer": false,
+      "role": "option",
+      "tag": "li"
+     }
+    },
+    {
+     "action": "type",
+     "role": "student",
+     "target": {
+      "classes": [
+       "student-search"
+      ],
+      "context": "Create Pass",
+      "index": 0,
+      "name": "Search students",
+      "pointer": false,
+      "role": "textbox",
+      "tag": "input"
+     },
+     "value": "{student}"
+    },
+    {
+     "action": "click",
+     "role": "student",
+     "target": {
+      "classes": [],
+      "context": "Create Pass",
+      "index": 0,
+      "name": "{student}",
+      "pointer": false,
+      "role": "option",
+      "tag": "li"
+     }
+    },
+    {
+     "action": "select",
+     "role": "fixed",
+     "target": {
+      "classes": [],
+      "context": "Create Pass",
+      "index": 0,
+      "name": "Teacher",
+      "pointer": false,
+      "role": "combobox",
+      "tag": "select"
+     },
+     "value": "Ms. Rivera"
+    },
+    {
+     "action": "click",
+     "role": "destination",
+     "target": {
+      "classes": [
+       "chip"
+      ],
+      "context": "Create Pass",
+      "index": 0,
+      "name": "{destination}",
+      "pointer": true,
+      "role": "generic",
+      "tag": "span"
+     }
+    },
+    {
+     "action": "click",
+     "role": "final",
+     "target": {
+      "classes": [
+       "create"
+      ],
+      "context": "Create Pass",
+      "index": 0,
+      "name": "Create Pass",
+      "pointer": false,
+      "role": "button",
+      "tag": "button",
+      "type": "button"
+     }
+    }
+   ],
+   "taughtAt": 1791907259248
+  }
+ }
+}

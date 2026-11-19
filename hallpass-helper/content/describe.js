@@ -90,6 +90,34 @@
     return "";
   };
 
+  // The row of a list the element sits in: the nearest ancestor that has look-alike siblings (same tag and
+  // classes) and holds more than the element's own text. null when it isn't in a list of rows.
+  const rowOf = (el) => {
+    const own = (el.innerText ?? "").length;
+    let node = el;
+    for (let i = 0; node.parentElement && node !== document.body && i < 12; i++, node = node.parentElement) {
+      const like = (c) => c.tagName === node.tagName && (c === node || (!c.classList.length && !node.classList.length) || [...c.classList].some((k) => node.classList.contains(k)));
+      const siblings = [...node.parentElement.children].filter(like);
+      if (siblings.length > 1 && (node.innerText ?? "").length > own + 15) return node;
+    }
+    return null;
+  };
+
+  // True when the element belongs to the student: it sits in the student's own row of a list, or, when it isn't
+  // in a list (a Pass Details box, say), in the smallest box around it that has the student's name. Another
+  // student's row never counts, even when the whole list is short enough to hold every name.
+  HPH.nearStudent = (el, student) => {
+    const row = rowOf(el);
+    if (row) return HPH.nameMatches(row.innerText ?? "", student);
+    let node = el;
+    for (let i = 0; node && node !== document.body && i < 12; i++, node = node.parentElement) {
+      const text = node.innerText ?? "";
+      if (text.length > 400) return false;
+      if (HPH.nameMatches(text, student)) return true;
+    }
+    return false;
+  };
+
   HPH.describe = (el, pointer = false) => {
     const desc = {
       role: HPH.roleOf(el),
@@ -120,6 +148,11 @@
       return { test, hint: HPH.tokens(dest)[0] };
     }
     if (!name) return { test: () => true };
+    // Built-in steps can use * for a word that varies, like "Create a new * pass".
+    if (name.includes("*")) {
+      const pattern = new RegExp(`^${norm(name).split("*").map((p) => p.replace(/[.+?^${}()|[\]\\]/g, "\\$&")).join(".+")}$`);
+      return { test: (text) => pattern.test(norm(text)), hint: HPH.tokens(name)[0] };
+    }
     return { test: (text) => norm(text) === norm(name), hint: HPH.tokens(name)[0] };
   }
 
@@ -133,11 +166,17 @@
     return { test, hint: HPH.tokens(n)[0] };
   }
 
-  function candidates(desc, { test, hint }) {
+  function candidates(desc, { test, hint }, exactTag = false) {
     const selector = desc.role === "generic" ? desc.tag : (ROLE_SELECTORS[desc.role] ?? `[role="${desc.role}"]`);
     const quick = (el) => !hint || el.hasAttribute("aria-label") || el.hasAttribute("aria-labelledby") || el.matches("input, select, textarea") || el.textContent.toLowerCase().includes(hint);
     let els = [...document.querySelectorAll(selector)].filter(
-      (el) => quick(el) && !el.closest("[data-hph-ui]") && HPH.roleOf(el) === desc.role && test(HPH.accessibleName(el)) && HPH.visible(el),
+      (el) =>
+        quick(el) &&
+        !el.closest("[data-hph-ui]") &&
+        HPH.roleOf(el) === desc.role &&
+        (!exactTag || !desc.tag || el.tagName.toLowerCase() === desc.tag) &&
+        test(HPH.accessibleName(el)) &&
+        HPH.visible(el),
     );
     if (desc.pointer) {
       els = [...new Set(els.filter(isPointer).map((el) => HPH.clickableRoot(el).el))].filter((el) => test(HPH.accessibleName(el)));
@@ -156,13 +195,16 @@
     return s;
   }
 
-  // Best-matching elements for a saved descriptor; more than one means a tie.
-  HPH.findTargets = (desc, params = {}) => {
-    let els = candidates(desc, nameTest(desc.name, params));
+  // Best-matching elements for a saved descriptor; more than one means a tie. With `exactTag`, only elements of
+  // the saved tag count (a search box is not the button that opens it, though both are called "Select student").
+  HPH.findTargets = (desc, params = {}, { exactTag = false } = {}) => {
+    let els = candidates(desc, nameTest(desc.name, params), exactTag);
     const loose = !els.length && looseTest(desc.name);
-    if (loose) els = candidates(desc, loose);
-    if (desc.context?.includes("{student}") && params.student) {
-      els = els.filter((el) => HPH.nameMatches(HPH.contextOf(el), params.student));
+    if (loose) els = candidates(desc, loose, exactTag);
+    // "near" (or a context that mentions the student) keeps only controls that sit in the student's own
+    // row, card or pass box, wherever that is in the list.
+    if (params.student && (desc.near === "{student}" || desc.context?.includes("{student}"))) {
+      els = els.filter((el) => HPH.nameMatches(HPH.contextOf(el), params.student) || HPH.nearStudent(el, params.student));
     }
     if (!els.length) return [];
     const scored = els.map((el) => ({ el, s: score(el, desc) }));

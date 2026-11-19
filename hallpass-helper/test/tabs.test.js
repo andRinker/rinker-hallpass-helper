@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { pickTab, siteName, taughtPlace } from "../lib/tabs.js";
+import { pageKind, pickTab, siteName, taughtPlace } from "../lib/tabs.js";
 
 const tab = (id, url, lastAccessed, windowId = 1) => ({ id, url, lastAccessed, windowId });
 const tabs = [
@@ -41,7 +41,7 @@ test("pickTab prefers an open pop-up when teaching, otherwise any tab", () => {
 
 test("taughtPlace treats older steps as taught in a normal HallPass tab", () => {
   assert.equal(taughtPlace(undefined), null);
-  assert.deepEqual(taughtPlace({ steps: [] }), { host: "hallpass.goguardian.com", popup: false });
+  assert.deepEqual(taughtPlace({ steps: [] }), { host: "campus.goguardian.com", popup: false });
   assert.deepEqual(taughtPlace({ steps: [], host: "teacher.goguardian.com" }), { host: "teacher.goguardian.com", popup: false });
   assert.deepEqual(taughtPlace({ steps: [], host: "hallpass.goguardian.com", popup: true }), { host: "hallpass.goguardian.com", popup: true });
 });
@@ -59,4 +59,11 @@ test("pickTab by kind finds that page, and siteName names it", () => {
   assert.equal(pickTab(withPopup, { kind: "home", host: "teacher.goguardian.com" }, popups).id, 2);
   assert.equal(pickTab(withPopup, { kind: "home", host: "other.goguardian.com" }, popups), null);
   assert.equal(siteName({ kind: "create" }), "the Create Pass window");
+});
+
+test("the old and new HallPass addresses count as the same site", () => {
+  const t = [tab(1, "https://campus.goguardian.com/home", 100)];
+  assert.equal(pickTab(t, { kind: "hallpass", host: "hallpass.goguardian.com" }).id, 1);
+  assert.equal(pickTab([tab(2, "https://hallpass.goguardian.com/home", 100)], { kind: "hallpass", host: "campus.goguardian.com" }).id, 2);
+  assert.equal(pageKind({ url: "https://campus.goguardian.com/home", windowId: 1 }, new Set()), "hallpass");
 });
