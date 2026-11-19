@@ -102,7 +102,7 @@ const TRY_LATER = new Set(["busy", "teaching"]);
 function stuckText(result, name) {
   switch (result?.reason) {
     case "ambiguous":
-      return "More than one student in HallPass matches that name.";
+      return "More than one student or button in HallPass matches, so the helper can't tell which is meant.";
     case "stuck":
       return `Got stuck at step ${result.step} (${result.label}). Try re-teaching, or copy the page outline for Claude.`;
     case "not-taught":

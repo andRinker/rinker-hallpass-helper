@@ -50,8 +50,14 @@ const makeWindow = popup(
   step("click", "fixed", { name: "Create a new * pass", role: "button", tag: "button" }),
 );
 
-// On the HallPass site, ending a pass is one click on the student's button.
-const endHallpass = hallpassSite("hallpass", [step("click", "student", { classes: BUTTON, name: "{student}", role: "button", tag: "button" })]);
+// On the HallPass site, ending a pass starts with one click on the student's button.
+// If that opens the pass's details instead, the helper then clicks End Pass (and Close) when they show up.
+const optional = (st) => ({ ...st, optional: true });
+const endHallpass = hallpassSite("hallpass", [
+  step("click", "student", { classes: BUTTON, name: "{student}", role: "button", tag: "button" }),
+  optional(step("click", "fixed", { classes: BUTTON, name: "End Pass", role: "button", tag: "button" })),
+  optional(step("click", "fixed", { classes: BUTTON, name: "Close", role: "button", tag: "button" })),
+]);
 
 // On the home screen, the student's button opens the window, where the pass is ended.
 const endWindow = popup(

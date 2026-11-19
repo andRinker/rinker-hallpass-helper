@@ -24,6 +24,7 @@ test("making a pass fills in the student and destination and ends on the final b
 test("no student name is built in, and ending picks the student", () => {
   assert.ok(!/jordan|miller|ava|lee/i.test(JSON.stringify(BUILTIN_MACROS)));
   assert.equal(BUILTIN_MACROS.endVia.hallpass.steps[0].role, "student");
+  assert.ok(BUILTIN_MACROS.endVia.hallpass.steps.slice(1).every((s) => s.optional));
   assert.equal(BUILTIN_MACROS.endVia.create.opener.steps[0].role, "student");
 });
 
