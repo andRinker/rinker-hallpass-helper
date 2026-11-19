@@ -2,10 +2,11 @@
 // and ends each pass once its time is up. Everything that clicks through HallPass runs here,
 // one thing at a time, so the queue, the timers and the Back button never trip over each other.
 import { loadSettings, saveSettings } from "./lib/storage.js";
-import { capitalize, goGuardianTab, hostOf, siteName } from "./lib/tabs.js";
+import { capitalize, goGuardianTab, allGoGuardianTabs, hostOf, pageKind, popupWindowIds, siteName } from "./lib/tabs.js";
 import { installBuiltin } from "./lib/builtin.js";
-import { END_ORDER, SEND_ORDER, chosenLane, endMethods, kindOfMacro, makeMethods, method, methodPlace, openerPlace } from "./lib/methods.js";
+import { END_ORDER, METHODS, SEND_ORDER, chosenLane, endMethods, kindOfMacro, makeMethods, method, methodPlace, openerPlace } from "./lib/methods.js";
 import { dueToEnd, endsAt, nextToSend } from "./lib/queue.js";
+import { applyEvent, emptyWatch } from "./lib/watch.js";
 
 const WATCHED = ["queue", "queuePaused", "outPasses", "maxOut", "autoEndMinutes", "macros"];
 
@@ -20,21 +21,83 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 chrome.runtime.onStartup.addListener(setup);
 chrome.alarms.onAlarm.addListener(() => sync());
-chrome.storage.onChanged.addListener((changes) => {
-  if (WATCHED.some((k) => k in changes)) sync();
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === "local" && "learned" in changes) installBuiltin();
+  if (area === "local" && WATCHED.some((k) => k in changes)) sync();
 });
 // Opening or reloading HallPass may be what the queue was waiting for.
 chrome.tabs.onUpdated.addListener((_id, info, tab) => {
   if (info.status === "complete" && hostOf(tab.url).endsWith("goguardian.com")) sync();
 });
 
-chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-  if (msg?.type !== "end-now") return false;
-  serial(() => endPass(msg.id, { manual: true })).then(sendResponse, (err) =>
-    sendResponse({ ok: false, reason: String(err) }),
-  );
-  return true;
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg?.type === "end-now") {
+    serial(() => endPass(msg.id, { manual: true })).then(sendResponse, (err) => sendResponse({ ok: false, reason: String(err) }));
+    return true;
+  }
+  if (msg?.type?.startsWith("watch-")) {
+    watchMessage(msg, sender).then(sendResponse, (err) => sendResponse({ ok: false, reason: String(err) }));
+    return true;
+  }
+  return false;
 });
+
+// --- Watch mode: gathering what every GoGuardian page reports while the teacher shows the helper around ---
+// Kept in session storage (memory only, gone when the browser closes) because it still has the names the
+// teacher clicked. The side panel turns it into steps with the names taken out, and drops the rest.
+
+const WATCH_KEY = "watch";
+const getWatch = async () => (await chrome.storage.session.get({ [WATCH_KEY]: emptyWatch() }))[WATCH_KEY];
+let watchChain = Promise.resolve();
+// One change at a time, so two pages reporting together never overwrite each other.
+function changeWatch(fn) {
+  return (watchChain = watchChain.catch(() => {}).then(async () => {
+    const state = await getWatch();
+    const next = await fn(state);
+    if (next && next !== state) await chrome.storage.session.set({ [WATCH_KEY]: next });
+    return next ?? state;
+  }));
+}
+
+const watchWords = async (goal) => {
+  const s = await loadSettings();
+  return { goal, keep: [s.school, s.teacherName, s.origin, ...s.destinations], roster: s.roster };
+};
+
+async function watchMessage(msg, sender) {
+  if (msg.type === "watch-event") {
+    const tab = sender.tab;
+    if (!tab) return { ok: false };
+    const page = { kind: pageKind(tab, await popupWindowIds()), host: hostOf(tab.url) };
+    await changeWatch((state) => applyEvent(state, msg, page));
+    return { ok: true };
+  }
+  if (msg.type === "watch-hello") {
+    const state = await getWatch();
+    return state.active ? { active: true, ...(await watchWords(state.goal)) } : { active: false };
+  }
+  if (msg.type === "watch-begin") {
+    await changeWatch(() => ({ ...emptyWatch(), active: true, goal: msg.goal, startedAt: Date.now() }));
+    const words = await watchWords(msg.goal);
+    for (const tab of await allGoGuardianTabs()) chrome.tabs.sendMessage(tab.id, { type: "watch-start", ...words }).catch(() => {});
+    return { ok: true };
+  }
+  if (msg.type === "watch-info") {
+    const s = await getWatch();
+    return { ok: true, active: s.active, goal: s.goal, steps: s.events.length, screens: Object.keys(s.screens).length, full: s.full, pages: [...new Set(s.events.map((e) => e.page.kind))] };
+  }
+  if (msg.type === "watch-end") {
+    const state = await getWatch();
+    for (const tab of await allGoGuardianTabs()) chrome.tabs.sendMessage(tab.id, { type: "watch-stop" }).catch(() => {});
+    // Give each page a moment to hand over the last thing it was typing.
+    await new Promise((r) => setTimeout(r, 700));
+    const done = await getWatch();
+    await changeWatch(() => emptyWatch());
+    sync();
+    return { ok: true, events: done.events.length >= state.events.length ? done.events : state.events, screens: done.screens, edges: done.edges, goal: state.goal };
+  }
+  return { ok: false };
+}
 
 // --- one thing at a time ---
 
@@ -53,6 +116,8 @@ function sync() {
 }
 
 async function look() {
+  // While the teacher is showing the helper around, nothing is sent or ended.
+  if ((await getWatch()).active) return;
   let s = await loadSettings();
   await armEndAlarms(s);
   // End first, so a pass that's up frees its spot before the next student goes.
@@ -104,7 +169,7 @@ function stuckText(result, name) {
     case "ambiguous":
       return "More than one student or button in HallPass matches, so the helper can't tell which is meant.";
     case "stuck":
-      return `Got stuck at step ${result.step} (${result.label}). Try re-teaching, or copy the page outline for Claude.`;
+      return `Got stuck at step ${result.step} (${result.label})${result.routes > 1 ? `, even after trying the other ${result.routes - 1 === 1 ? "way" : "ways"}` : ""}. Copy the page outline for Claude.`;
     case "not-taught":
     case "no-end-macro":
       return "The helper hasn't been taught that yet.";
@@ -170,60 +235,87 @@ async function openCreateWindow(homeTab, name, message) {
   return { ok: false, why: `${capitalize(name)} didn't open after clicking Create Pass.` };
 }
 
-async function send(entry) {
-  const settings = await loadSettings();
-  // Only the chosen lane is used: the helper never moves to the other way by itself.
-  const lane = chosenLane(settings);
+// What the helper did on its last try, for the side panel and the page outline: no names, only the steps.
+async function saveRun(goal, lane, result) {
+  const notes = (result?.notes ?? []).slice(0, 12);
+  await saveSettings({
+    lastRun: {
+      goal,
+      lane,
+      at: Date.now(),
+      ok: !!result?.ok,
+      ...(result?.reason ? { reason: result.reason, step: result.step, label: result.label } : {}),
+      ...(result?.routes > 1 ? { route: result.route, routes: result.routes } : {}),
+      notes,
+    },
+  });
+}
+
+// The other ways, for when "try the other way if this one gets stuck" is switched on.
+const lanesToTry = (settings, lane) => (settings.fallback ? [lane, ...METHODS.map((m) => m.kind).filter((k) => k !== lane)] : [lane]);
+
+// One go at sending `entry` through one way. Resolves { status: "sent" | "later" | "unavailable" | "failed", why }.
+async function sendVia(entry, settings, lane) {
   const methods = pick(makeMethods(settings.macros), lane);
-  if (!methods[lane]) {
-    await saveSettings({ queueProblem: `The helper hasn't been taught ${method(lane).name} yet. Teach it, or switch to the other way.` });
-    return;
-  }
+  if (!methods[lane]) return { status: "unavailable", why: `The helper hasn't been taught ${method(lane).name} yet. Switch to the other way.` };
   const found = await openMethod(methods);
   if (!found.tab && !found.opener) {
-    const problem = found.stale
+    const why = found.stale
       ? `Reload ${found.stale.name} so ${entry.label} can go.`
       : `Open ${found.taught.map((k) => method(k).where.split(",")[0]).join(" or ")} so ${entry.label} can go.`;
-    await saveSettings({ queueProblem: problem });
-    return;
+    return { status: "unavailable", why };
   }
   const { name, kind } = found;
   let tab = found.tab;
   if (found.opener) {
     const opened = await openCreateWindow(found.opener, name, { which: "make" });
-    if (!opened.ok) {
-      await saveSettings({ queuePaused: true, queueProblem: `${entry.label} wasn't sent. ${opened.why}` });
-      notify("Queue paused", `${entry.label} wasn't sent. ${opened.why}`);
-      return;
-    }
+    if (!opened.ok) return { status: "failed", why: opened.why };
     tab = opened.tab;
   }
   let result = await inTab(tab, { type: "make-pass", method: kind, student: entry.student, destination: entry.destination });
   // The Create Pass window may close itself once the pass is made, which cuts the reply off. A window that's
   // gone after no reply means it finished (a stuck step would have left it open).
   if (!result && kind === "create" && (await readyTab({ kind: "create" })).state === "closed") result = { ok: true };
-  if (TRY_LATER.has(result?.reason)) return;
+  if (TRY_LATER.has(result?.reason)) return { status: "later" };
+  await saveRun("make", kind, result);
   if (!result?.ok) {
-    const why = stuckText(result, name);
-    await saveSettings({ queuePaused: true, queueProblem: `${entry.label} wasn't sent. ${why}` });
-    notify("Queue paused", `${entry.label} wasn't sent. ${why}`);
+    // Only a clean "stuck" is safe to try another way after. No reply, or two matching students, is not.
+    return { status: "failed", why: stuckText(result, name), retryable: result?.reason === "stuck" };
+  }
+  return { status: "sent" };
+}
+
+async function send(entry) {
+  const settings = await loadSettings();
+  // Normally only the chosen way is used. With the fallback switch on, a way that gets stuck (before anything
+  // was made) hands over to the other one.
+  const lane = chosenLane(settings);
+  const outs = [];
+  for (const kind of lanesToTry(settings, lane)) {
+    const out = await sendVia(entry, settings, kind);
+    if (out.status === "later") return;
+    if (out.status === "sent") {
+      const s = await loadSettings();
+      await saveSettings({
+        queue: s.queue.filter((e) => e.id !== entry.id),
+        outPasses: [
+          ...s.outPasses,
+          { id: entry.id, student: entry.student, label: entry.label, destination: entry.destination, startedAt: Date.now() },
+        ],
+        queueProblem: "",
+      });
+      return;
+    }
+    outs.push(out);
+    if (out.status === "failed" && !out.retryable) break;
+  }
+  const failed = outs.find((o) => o.status === "failed");
+  if (!failed) {
+    await saveSettings({ queueProblem: outs[0].why });
     return;
   }
-  const s = await loadSettings();
-  await saveSettings({
-    queue: s.queue.filter((e) => e.id !== entry.id),
-    outPasses: [
-      ...s.outPasses,
-      {
-        id: entry.id,
-        student: entry.student,
-        label: entry.label,
-        destination: entry.destination,
-        startedAt: Date.now(),
-      },
-    ],
-    queueProblem: "",
-  });
+  await saveSettings({ queuePaused: true, queueProblem: `${entry.label} wasn't sent. ${failed.why}` });
+  notify("Queue paused", `${entry.label} wasn't sent. ${failed.why}`);
 }
 
 async function markFailed(pass, why) {
@@ -231,57 +323,72 @@ async function markFailed(pass, why) {
   await saveSettings({ outPasses: outPasses.map((p) => (p.id === pass.id ? { ...p, endFailed: why } : p)) });
 }
 
-// Ends a pass in HallPass. Time's up unless `manual` (the teacher pressed Back).
-async function endPass(id, { manual = false } = {}) {
-  const settings = await loadSettings();
-  const { outPasses, macros, autoEndMinutes } = settings;
-  const pass = outPasses.find((p) => p.id === id);
-  if (!pass) return { ok: true };
-  const lane = chosenLane(settings);
-  const timesUp = `${pass.label}'s ${autoEndMinutes} minutes are up`;
-  const methods = pick(endMethods(macros), lane);
+// One go at ending `pass` through one way. Resolves { status: "ended" | "later" | "unavailable" | "failed", why, reason }.
+async function endVia(pass, settings, lane) {
+  const methods = pick(endMethods(settings.macros), lane);
   if (!methods[lane]) {
-    const need = Object.keys(endMethods(macros)).length ? `It only knows how to end a pass the other way. Switch ways, or teach ending ${method(lane).end.label}.` : "Teach the helper how you end a pass.";
-    if (!manual) {
-      await markFailed(pass, need);
-      notify("Pass not ended", `${timesUp}. ${need}`);
-    }
-    return { ok: false, reason: "no-end-macro" };
+    const need = Object.keys(endMethods(settings.macros)).length ? `It only knows how to end a pass the other way. Switch ways.` : "The helper doesn't know how to end a pass yet.";
+    return { status: "unavailable", why: need, reason: "no-end-macro" };
   }
   const found = await openMethod(methods, END_ORDER);
   if (!found.tab && !found.opener) {
     const where = found.stale ? found.stale.name : found.taught.map((k) => method(k).where.split(",")[0]).join(" or ");
-    if (!manual) {
-      await markFailed(pass, found.stale ? `Reload ${where}.` : `Open ${where}.`);
-      notify("Pass not ended", `${timesUp}, but ${where} ${found.stale ? "needs a reload" : "isn't open"}. End it by hand.`);
-    }
-    return { ok: false, reason: "closed" };
+    return { status: "unavailable", why: found.stale ? `Reload ${where}.` : `Open ${where}.`, where, stale: !!found.stale, reason: "closed" };
   }
   const { name, kind } = found;
   let tab = found.tab;
   if (found.opener) {
     const opened = await openCreateWindow(found.opener, name, { which: "end", student: pass.student });
-    if (!opened.ok) {
-      await markFailed(pass, opened.why);
-      if (!manual) notify("Pass not ended", `${timesUp}, but the helper couldn't end it. ${opened.why}`);
-      return { ok: false };
-    }
+    if (!opened.ok) return { status: "failed", why: opened.why };
     tab = opened.tab;
   }
   let result = await inTab(tab, { type: "end-pass", method: kind, student: pass.student });
   // The window may close itself once the pass is ended, which cuts the reply off.
   if (!result && kind === "create" && (await readyTab({ kind: "create" })).state === "closed") result = { ok: true };
-  if (TRY_LATER.has(result?.reason)) return result;
-  if (!result?.ok) {
-    const why = stuckText(result, name);
-    await markFailed(pass, why);
-    if (!manual) notify("Pass not ended", `${timesUp}, but the helper couldn't end it. ${why}`);
-    return result ?? { ok: false };
+  if (TRY_LATER.has(result?.reason)) return { status: "later", result };
+  await saveRun("end", kind, result);
+  if (!result?.ok) return { status: "failed", why: stuckText(result, name), retryable: result?.reason === "stuck", result };
+  return { status: "ended" };
+}
+
+// Ends a pass in HallPass. Time's up unless `manual` (the teacher pressed Back).
+async function endPass(id, { manual = false } = {}) {
+  const settings = await loadSettings();
+  const { outPasses, autoEndMinutes } = settings;
+  const pass = outPasses.find((p) => p.id === id);
+  if (!pass) return { ok: true };
+  const lane = chosenLane(settings);
+  const timesUp = `${pass.label}'s ${autoEndMinutes} minutes are up`;
+  const outs = [];
+  for (const kind of lanesToTry(settings, lane)) {
+    const out = await endVia(pass, settings, kind);
+    if (out.status === "later") return out.result;
+    if (out.status === "ended") {
+      const latest = await loadSettings();
+      await saveSettings({ outPasses: latest.outPasses.filter((p) => p.id !== id) });
+      if (!manual) notify("Pass ended", `${pass.label}'s pass ended at ${autoEndMinutes} minutes.`);
+      return { ok: true };
+    }
+    outs.push(out);
+    if (out.status === "failed" && !out.retryable) break;
   }
-  const latest = await loadSettings();
-  await saveSettings({ outPasses: latest.outPasses.filter((p) => p.id !== id) });
-  if (!manual) notify("Pass ended", `${pass.label}'s pass ended at ${autoEndMinutes} minutes.`);
-  return { ok: true };
+  const failed = outs.find((o) => o.status === "failed");
+  const why = (failed ?? outs[0]).why;
+  if (!failed) {
+    // The page isn't there, or the helper wasn't taught this way: nothing was tried.
+    if (!manual) {
+      await markFailed(pass, why);
+      const first = outs[0];
+      notify(
+        "Pass not ended",
+        first.reason === "closed" ? `${timesUp}, but ${first.where} ${first.stale ? "needs a reload" : "isn't open"}. End it by hand.` : `${timesUp}. ${why}`,
+      );
+    }
+    return { ok: false, reason: outs[0].reason };
+  }
+  await markFailed(pass, why);
+  if (!manual) notify("Pass not ended", `${timesUp}, but the helper couldn't end it. ${why}`);
+  return failed.result ?? { ok: false };
 }
 
 function notify(title, message) {

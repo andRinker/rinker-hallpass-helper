@@ -17,6 +17,14 @@ export const DEFAULTS = {
   macros: {},
   // Which way passes are made AND ended: "hallpass" or "create" (home screen -> pop-up). Empty: the first one taught.
   lane: "",
+  // On: when the chosen way gets stuck before anything was made or ended, the other way is tried. Off by default.
+  fallback: false,
+  // Other ways learned in Watch mode, added to the built-in steps: { make: { hallpass: [{ steps, learnedAt }] }, endVia: {...} }
+  learned: {},
+  // The screens the helper has seen while watching: { screens: {...}, edges: {...} }. Common words only.
+  siteMap: { screens: {}, edges: {} },
+  // What the helper did on its last try (no names): { goal, lane, at, ok, notes: [...] }
+  lastRun: null,
   // Students waiting their turn, in order: [{ id, student, label, destination, addedAt }]
   queue: [],
   queuePaused: false,

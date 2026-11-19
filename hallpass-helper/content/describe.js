@@ -90,6 +90,33 @@
     return "";
   };
 
+  // The row of a list the element sits in: the nearest ancestor that has look-alike siblings (same tag and
+  // classes) and holds more than the element's own text. null when it isn't in a list of rows.
+  const rowOf = (el) => {
+    const own = (el.innerText ?? "").length;
+    let node = el;
+    for (let i = 0; node.parentElement && node !== document.body && i < 12; i++, node = node.parentElement) {
+      const siblings = [...node.parentElement.children].filter((c) => c.tagName === node.tagName && c.className === node.className);
+      if (siblings.length > 1 && (node.innerText ?? "").length > own + 15) return node;
+    }
+    return null;
+  };
+
+  // True when the element belongs to the student: it sits in the student's own row of a list, or, when it isn't
+  // in a list (a Pass Details box, say), in the smallest box around it that has the student's name. Another
+  // student's row never counts, even when the whole list is short enough to hold every name.
+  HPH.nearStudent = (el, student) => {
+    const row = rowOf(el);
+    if (row) return HPH.nameMatches(row.innerText ?? "", student);
+    let node = el;
+    for (let i = 0; node && node !== document.body && i < 12; i++, node = node.parentElement) {
+      const text = node.innerText ?? "";
+      if (text.length > 400) return false;
+      if (HPH.nameMatches(text, student)) return true;
+    }
+    return false;
+  };
+
   HPH.describe = (el, pointer = false) => {
     const desc = {
       role: HPH.roleOf(el),
@@ -166,8 +193,10 @@
     let els = candidates(desc, nameTest(desc.name, params));
     const loose = !els.length && looseTest(desc.name);
     if (loose) els = candidates(desc, loose);
-    if (desc.context?.includes("{student}") && params.student) {
-      els = els.filter((el) => HPH.nameMatches(HPH.contextOf(el), params.student));
+    // "near" (or a context that mentions the student) keeps only controls that sit in the student's own
+    // row, card or pass box, wherever that is in the list.
+    if (params.student && (desc.near === "{student}" || desc.context?.includes("{student}"))) {
+      els = els.filter((el) => HPH.nameMatches(HPH.contextOf(el), params.student) || HPH.nearStudent(el, params.student));
     }
     if (!els.length) return [];
     const scored = els.map((el) => ({ el, s: score(el, desc) }));

@@ -31,6 +31,10 @@
         <button id="pause" type="button"></button>
       </div>
       <p id="queueStatus" class="queue-status" aria-live="polite"></p>
+      <details id="lastRun" class="hint" hidden>
+        <summary id="lastRunSummary"></summary>
+        <ul id="lastRunNotes"></ul>
+      </details>
       <form id="addForm" autocomplete="off">
         <input id="addName" type="text" placeholder="Type a student's name, then Enter" aria-label="Add a student to the queue" />
       </form>

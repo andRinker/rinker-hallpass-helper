@@ -45,7 +45,7 @@
       "js": [
         "content/core.js",
         "content/describe.js",
-        "content/recorder.js",
+        "content/watch.js",
         "content/replay.js",
         "content/outline.js",
         "content/hallpass.js"

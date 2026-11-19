@@ -131,6 +131,13 @@
     });
   };
 
+  // A page address with anything that could be an id or a name taken out: uuids, long codes and numbers become "#".
+  HPH.pathShape = (path) =>
+    String(path ?? "")
+      .replace(/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}/gi, "#")
+      .replace(/[A-Za-z0-9_-]{20,}/g, "#")
+      .replace(/\d+/g, "#");
+
   const quote = (text) => `"${String(text ?? "").slice(0, 60)}"`;
   HPH.stepLabel = (step) => {
     const where = step.target.name || step.target.tag;
