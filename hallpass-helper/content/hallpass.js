@@ -1,22 +1,24 @@
 // Runs inside HallPass and GoGuardian's home screen (any goguardian.com page) and answers the side panel and background.
-// HallPass itself is learned by watching (recorder.js) and replayed (replay.js), so nothing
+// HallPass itself is learned by watching (watch.js) and replayed (replay.js), so nothing
 // here hard-codes HallPass's page layout. Deciding who to send and when lives in background.js.
 (() => {
   const HPH = globalThis.HallPassHelper;
 
   const getMacros = async () => (await chrome.storage.local.get({ macros: {} })).macros;
 
-  // While the teacher is teaching, the helper keeps its hands off the page.
-  const teaching = () => HPH.recordingStatus().recording;
+  // While the teacher is showing the helper around (Watch mode), the helper keeps its hands off the page.
+  const teaching = () => HPH.isWatching();
 
   const handlers = {
     ping: async () => ({ ok: true }),
-    "teach-start": async ({ kind }) => {
-      HPH.startRecording(kind);
+    "watch-start": async (settings) => {
+      HPH.startWatching(settings);
       return { ok: true };
     },
-    "teach-status": async () => ({ ok: true, ...HPH.recordingStatus() }),
-    "teach-stop": async () => ({ ok: true, ...HPH.stopRecording() }),
+    "watch-stop": async () => {
+      HPH.stopWatching();
+      return { ok: true };
+    },
     // Makes the pass all the way through the final button.
     "make-pass": async ({ student, destination, method }) => {
       if (teaching()) return { ok: false, reason: "teaching" };
@@ -48,9 +50,10 @@
         destinations: [],
         roster: [],
         macros: {},
+        lastRun: null,
       });
       const keep = [s.school, s.teacherName, s.origin, ...s.destinations];
-      return { ok: true, text: HPH.pageOutline({ keep, roster: s.roster, macros: s.macros }) };
+      return { ok: true, text: HPH.pageOutline({ keep, roster: s.roster, macros: s.macros, lastRun: s.lastRun }) };
     },
   };
 
