@@ -35,9 +35,13 @@
     return `${prefix} ${cycle ? `${base}${cycle + 1}` : base}`;
   }
 
-  // Creates a stateful, allowlist-only scrubber for a single capture session.
+  // Holds temporary in-memory synthetic label maps across frames of a single recording session.
+  // Never persisted; discarded as soon as recording stops.
+  HPH.createScrubSession = () => ({ studentMap: new Map(), demoMap: new Map() });
+
+  // Creates a stateful, allowlist-only scrubber for a single capture (or shared across frames via `session`).
   // The mapping from real values to synthetic labels lives only in memory during capture and is never saved.
-  HPH.createScrubber = ({ roster = [], forbidden = [] } = {}) => {
+  HPH.createScrubber = ({ roster = [], forbidden = [], session = null } = {}) => {
     const uiWords = HPH.UI_WORDS;
     const rosterEntries = [];
     const rosterSingleTokens = new Set();
@@ -74,8 +78,8 @@
     }
     forbiddenEntries.sort((a, b) => b.raw.length - a.raw.length);
 
-    const studentMap = new Map();
-    const demoMap = new Map();
+    const studentMap = session?.studentMap ?? new Map();
+    const demoMap = session?.demoMap ?? new Map();
     const keptWords = new Set();
     const syntheticUsed = new Set();
     const stats = {
@@ -88,23 +92,19 @@
     };
 
     function mapStudent(key) {
-      if (!studentMap.has(key)) {
-        const label = syntheticLabel("Student", studentMap.size);
-        studentMap.set(key, label);
-        syntheticUsed.add(label);
-      }
+      if (!studentMap.has(key)) studentMap.set(key, syntheticLabel("Student", studentMap.size));
+      const label = studentMap.get(key);
+      syntheticUsed.add(label);
       stats.rosterHits++;
-      return studentMap.get(key);
+      return label;
     }
 
     function mapDemo(key) {
-      if (!demoMap.has(key)) {
-        const label = syntheticLabel("Demo", demoMap.size);
-        demoMap.set(key, label);
-        syntheticUsed.add(label);
-      }
+      if (!demoMap.has(key)) demoMap.set(key, syntheticLabel("Demo", demoMap.size));
+      const label = demoMap.get(key);
+      syntheticUsed.add(label);
       stats.unknownReplacements++;
-      return demoMap.get(key);
+      return label;
     }
 
     // Build regexes for full roster names ("First Last" and "Last, First") so names containing

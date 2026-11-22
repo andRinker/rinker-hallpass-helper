@@ -23,8 +23,6 @@
 
     <section id="guide" class="guide"></section>
 
-    <section id="teach" class="card teach" aria-live="polite"></section>
-
     <section>
       <div class="row section-head">
         <h2>Queue <span id="queueCount"></span></h2>
@@ -34,6 +32,7 @@
       <details id="lastRun" class="hint" hidden>
         <summary id="lastRunSummary"></summary>
         <ul id="lastRunNotes"></ul>
+        <button id="reviewFailureLink" class="link" type="button" hidden>Review &amp; download what went wrong (names hidden)</button>
       </details>
       <form id="addForm" autocomplete="off">
         <input id="addName" type="text" placeholder="Type a student's name, then Enter" aria-label="Add a student to the queue" />
@@ -49,54 +48,119 @@
       <p id="outEmpty" class="hint">Students the helper sends show up here with a timer.</p>
     </section>
 
-    <section class="tools">
-      <div class="tools-list">
-        <button id="diagnoseButton" class="link" type="button">Run read-only self-check (dry run)</button>
-        <button id="snapshotButton" class="link" type="button">Capture scrubbed DOM snapshot</button>
-        <button id="outlineButton" class="link" type="button">Copy outline of open GoGuardian pages</button>
-      </div>
+    <details id="testingDrawer" class="testing-drawer">
+      <summary>
+        <span>Testing &amp; Diagnostics</span>
+        <span id="testingBadge" class="testing-badge" hidden></span>
+      </summary>
 
-      <div id="diagnoseBox" class="tool-box" hidden>
-        <p id="diagnoseBadge" class="audit-banner"></p>
-        <textarea id="diagnoseText" rows="12" readonly aria-label="Read-only self-check report"></textarea>
-        <div class="row tool-actions">
-          <button id="copyDiagnose" class="primary" type="button">Copy report</button>
-          <button id="closeDiagnose" type="button">Close</button>
-        </div>
-      </div>
+      <div class="drawer-body">
+        <section id="recorderCard" class="tool-box">
+          <h3>Record GoGuardian session (name-free)</h3>
+          <p class="hint">
+            Click Start, use GoGuardian normally for a minute or two (including any tricky situations), then click Stop.
+            All names, photos, and scripts are stripped locally before you save.
+          </p>
 
-      <div id="snapshotBox" class="tool-box" hidden>
-        <select id="snapshotPicker" aria-label="Choose captured page" hidden></select>
-        <p id="snapshotStatus" class="audit-banner"></p>
-        <p id="snapshotStats" class="hint"></p>
-        <details id="snapshotWordsDetails" class="word-audit-details">
-          <summary id="snapshotWordsSummary"></summary>
-          <div id="snapshotWords" class="word-audit"></div>
+          <div id="recordIdle" class="row tool-actions">
+            <button id="recordButton" class="primary" type="button">Record GoGuardian session</button>
+          </div>
+
+          <div id="recordActive" hidden>
+            <p id="recordStatus" class="recording" aria-live="polite"></p>
+            <div class="row tool-actions">
+              <button id="stopRecordButton" class="primary" type="button">Stop &amp; review bundle</button>
+              <button id="cancelRecordButton" type="button">Cancel</button>
+            </div>
+          </div>
+
+          <div id="recordReview" hidden>
+            <p id="bundleStatus" class="audit-banner"></p>
+            <p id="bundleStats" class="hint"></p>
+            <details class="word-audit-details">
+              <summary id="bundleWordsSummary"></summary>
+              <div id="bundleWords" class="word-audit"></div>
+            </details>
+            <ol id="bundleFrames" class="frame-list"></ol>
+            <div class="row tool-actions">
+              <button id="downloadBundle" class="primary" type="button">Download bundle (.json)</button>
+              <button id="copyBundle" type="button">Copy JSON</button>
+              <button id="discardBundle" type="button">Discard</button>
+            </div>
+          </div>
+        </section>
+
+        <section id="failureCard" class="tool-box" hidden>
+          <h3>Last stuck moment (auto-captured)</h3>
+          <p id="failureSummary" class="hint"></p>
+          <p id="failureAuditBanner" class="audit-banner"></p>
+          <details class="word-audit-details">
+            <summary id="failureWordsSummary"></summary>
+            <div id="failureWords" class="word-audit"></div>
+          </details>
+          <div class="row tool-actions">
+            <button id="previewFailure" type="button">Preview in tab</button>
+            <button id="downloadFailure" class="primary" type="button">Download (.json)</button>
+            <button id="clearFailure" type="button">Clear</button>
+          </div>
+        </section>
+
+        <details id="advancedTools" class="advanced-tools">
+          <summary>More tools (single snapshot, dry run, outline, Watch mode)</summary>
+
+          <section id="teach" class="card teach" aria-live="polite"></section>
+
+          <section class="tools">
+            <div class="tools-list">
+              <button id="diagnoseButton" class="link" type="button">Run read-only self-check (dry run)</button>
+              <button id="snapshotButton" class="link" type="button">Capture single scrubbed DOM snapshot</button>
+              <button id="outlineButton" class="link" type="button">Copy outline of open GoGuardian pages</button>
+            </div>
+
+            <div id="diagnoseBox" class="tool-box" hidden>
+              <p id="diagnoseBadge" class="audit-banner"></p>
+              <textarea id="diagnoseText" rows="12" readonly aria-label="Read-only self-check report"></textarea>
+              <div class="row tool-actions">
+                <button id="copyDiagnose" class="primary" type="button">Copy report</button>
+                <button id="closeDiagnose" type="button">Close</button>
+              </div>
+            </div>
+
+            <div id="snapshotBox" class="tool-box" hidden>
+              <select id="snapshotPicker" aria-label="Choose captured page" hidden></select>
+              <p id="snapshotStatus" class="audit-banner"></p>
+              <p id="snapshotStats" class="hint"></p>
+              <details id="snapshotWordsDetails" class="word-audit-details">
+                <summary id="snapshotWordsSummary"></summary>
+                <div id="snapshotWords" class="word-audit"></div>
+              </details>
+              <details class="word-audit-details">
+                <summary>View raw scrubbed HTML</summary>
+                <textarea id="snapshotHtml" rows="8" readonly aria-label="Scrubbed DOM snapshot HTML"></textarea>
+              </details>
+              <div class="row tool-actions">
+                <button id="previewSnapshot" type="button">Preview in tab</button>
+                <button id="downloadSnapshot" class="primary" type="button">Download .html</button>
+                <button id="copySnapshot" type="button">Copy HTML</button>
+                <button id="closeSnapshot" type="button">Close</button>
+              </div>
+            </div>
+
+            <div id="outlineBox" class="tool-box" hidden>
+              <p id="outlineHint" class="hint">
+                Student and staff names show up as "Xxxxx". Look it over before you send it, then paste it into an email
+                or doc to yourself.
+              </p>
+              <textarea id="outlineText" rows="12" readonly aria-label="Page outline"></textarea>
+              <div class="row tool-actions">
+                <button id="copyOutline" class="primary" type="button">Copy</button>
+                <button id="closeOutline" type="button">Close</button>
+              </div>
+            </div>
+          </section>
         </details>
-        <details class="word-audit-details">
-          <summary>View raw scrubbed HTML</summary>
-          <textarea id="snapshotHtml" rows="8" readonly aria-label="Scrubbed DOM snapshot HTML"></textarea>
-        </details>
-        <div class="row tool-actions">
-          <button id="previewSnapshot" type="button">Preview in tab</button>
-          <button id="downloadSnapshot" class="primary" type="button">Download .html</button>
-          <button id="copySnapshot" type="button">Copy HTML</button>
-          <button id="closeSnapshot" type="button">Close</button>
-        </div>
       </div>
-
-      <div id="outlineBox" class="tool-box" hidden>
-        <p id="outlineHint" class="hint">
-          Student and staff names show up as "Xxxxx". Look it over before you send it, then paste it into an email or doc
-          to yourself.
-        </p>
-        <textarea id="outlineText" rows="12" readonly aria-label="Page outline"></textarea>
-        <div class="row tool-actions">
-          <button id="copyOutline" class="primary" type="button">Copy</button>
-          <button id="closeOutline" type="button">Close</button>
-        </div>
-      </div>
-    </section>
+    </details>
 
     <div id="toast" class="toast" role="status" hidden></div>
 

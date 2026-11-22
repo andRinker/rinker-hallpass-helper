@@ -122,7 +122,13 @@ try {
     guideNow.replace(/\s+/g, " ").slice(0, 300),
   );
 
-  check(await panel.locator("#teach").isVisible(), "Watch card: shown");
+  check(
+    !(await panel.locator("#testingDrawer").evaluate((d) => d.open)),
+    "Testing & Diagnostics drawer: starts collapsed to keep the panel uncluttered",
+  );
+  await panel.click("#testingDrawer > summary");
+  await panel.click("#advancedTools > summary");
+  check(await panel.locator("#teach").isVisible(), "Watch card: shown inside More tools");
   check((await panel.getByRole("button", { name: /^Teach/ }).count()) === 0, "no Teach buttons: the steps are built in");
   check(
     (await panel.getByRole("button", { name: /Watch me make a pass|Watch me end a pass|Just look around/ }).count()) === 3,
@@ -616,13 +622,71 @@ try {
   );
   await sp.close();
 
+  // Multi-frame Flight Recorder: captures multiple scrubbed screens as dialogs open and close, with 1 unified Privacy Audit.
+  await bReset([["Jordan Miller", "Library"], ["Ava Lee", "Nurse"]]);
+  await panel.click("#recordButton");
+  await panel.locator("#recordActive").waitFor({ state: "visible" });
+  await until(async () => /1 screen|[2-9]\d* screens/.test((await panelText("#recordStatus")) ?? ""), "initial recording frame captured", 8000);
+  await bp.click("#newPass");
+  await bp.waitForSelector('[aria-label="Request Pass"]');
+  await new Promise((r) => setTimeout(r, 700));
+  await bp.click("#list li:nth-child(2) button");
+  await bp.waitForSelector('[aria-label="Pass Details"]');
+  await new Promise((r) => setTimeout(r, 700));
+  await panel.click("#stopRecordButton");
+  await panel.locator("#recordReview").waitFor({ state: "visible" });
+  const bundleStatus = await panel.locator("#bundleStatus").textContent();
+  const frameCountBefore = await panel.locator("#bundleFrames .frame-row").count();
+  const bundleAuditWords = await panel.locator("#bundleWords .word-pill").allTextContents();
+  check(
+    bundleStatus.includes("Privacy check passed") && frameCountBefore >= 2 && !bundleAuditWords.some((w) => /jordan|miller|ava|lee/i.test(w)),
+    "flight recorder: captures multi-screen bundle with clean unified privacy audit",
+    `${bundleStatus} | frames=${frameCountBefore}`,
+  );
+  await panel.locator("#bundleFrames .frame-row .remove").first().click();
+  check(
+    (await panel.locator("#bundleFrames .frame-row").count()) === frameCountBefore - 1,
+    "flight recorder: teacher can remove an individual frame before downloading",
+  );
+  await panel.click("#discardBundle");
+
+  // Real GoGuardian regression fixture (captured from real campus.goguardian.com with zero PII).
+  const realCampusHtml = readFileSync(path.join(here, "fixtures", "campus-home-empty.html"), "utf8");
+  await ctx.route("https://campus.goguardian.com/fixture-home", (route) =>
+    route.fulfill({ contentType: "text/html; charset=utf-8", body: realCampusHtml }),
+  );
+  const fp = await ctx.newPage();
+  watch(fp, "real-campus-fixture");
+  await fp.goto("https://campus.goguardian.com/fixture-home");
+  await until(async () => {
+    const res = await sw.evaluate(async () => {
+      const [t] = await chrome.tabs.query({ url: "https://campus.goguardian.com/fixture-home" });
+      return t ? chrome.tabs.sendMessage(t.id, { type: "ping" }).catch(() => null) : null;
+    });
+    return res?.ok;
+  }, "real campus fixture content script ready");
+  const campusDiag = await sw.evaluate(async () => {
+    const [t] = await chrome.tabs.query({ url: "https://campus.goguardian.com/fixture-home" });
+    return chrome.tabs.sendMessage(t.id, { type: "diagnose", isPopup: false });
+  });
+  check(
+    campusDiag?.ok &&
+      campusDiag.audit?.clean &&
+      campusDiag.report.includes("READY (3 matches, picks #1)") &&
+      campusDiag.report.includes("Selected view/radio: Table") &&
+      campusDiag.report.includes("Dismissible banners: 1"),
+    "real campus fixture: detects 3 New Pass buttons as READY (picks #1), Table view, and dismissible banner",
+    campusDiag?.report?.slice(0, 600),
+  );
+  await fp.close();
+
   await setMacros(fixture);
   await bp.close();
 
   // The "try the other way" switch: with it on, a way that gets stuck before anything is made hands over to the other one.
   const brokenMake = { ...fixture.make.hallpass, steps: fixture.make.hallpass.steps.map((st, i) => (i === 0 ? { ...st, target: { ...st.target, name: "No Such Button" } } : st)) };
   await setMacros({ ...fixture, make: { ...fixture.make, hallpass: brokenMake } });
-  await sw.evaluate(() => chrome.storage.local.set({ outPasses: [], queue: [], queuePaused: false, queueProblem: "" }));
+  await sw.evaluate(() => chrome.storage.local.set({ outPasses: [], queue: [], queuePaused: false, queueProblem: "", lastFailureCapture: null }));
   check(!(await panel.getByLabel("If this way gets stuck, try the other way").isChecked()), "fallback: off unless you turn it on");
   await panel.getByLabel("If this way gets stuck, try the other way").check();
   const hpBefore2 = (await mockPasses(hp)).length;
@@ -633,6 +697,18 @@ try {
   await until(async () => (await storage("lastRun")).lastRun?.ok === true, "the last try is saved", 20000).catch(() => {});
   const run = (await storage("lastRun")).lastRun;
   check(run?.goal === "make" && run.ok === true && run.lane === "create", "last try: remembers which way finished the job", JSON.stringify(run));
+
+  // Automatic Failure Capture: brokenMake getting stuck on hallpass automatically saved a clean scrubbed capture.
+  const failCap = (await storage("lastFailureCapture")).lastFailureCapture;
+  check(
+    failCap?.goal === "make" &&
+      failCap.reason === "stuck" &&
+      failCap.frame?.audit?.clean === true &&
+      !/\b(Jordan|Miller|Ava|Lee|Priya|Shah|Rivera)\b|<script/i.test(failCap.frame?.html ?? "") &&
+      (await panel.locator("#failureCard").isVisible()),
+    "auto-failure capture: automatically saves a clean name-free failure snapshot and shows it in the drawer",
+    JSON.stringify({ goal: failCap?.goal, reason: failCap?.reason, clean: failCap?.frame?.audit?.clean }),
+  );
 
   check(errors.length === 0, "no console errors", errors.join("\n     "));
 } catch (err) {

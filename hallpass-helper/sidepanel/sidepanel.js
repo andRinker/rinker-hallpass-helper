@@ -7,7 +7,7 @@ import { installBuiltin } from "../lib/builtin.js";
 import { renderGuide } from "./guide.js";
 import { initWatch, renderWatch } from "./watch.js";
 import { initWhosOut, renderWhosOut } from "./whos-out.js";
-import { initTools } from "./tools.js";
+import { initTools, renderFailureCapture } from "./tools.js";
 
 $("version").textContent = chrome.runtime.getManifest().version_name ?? chrome.runtime.getManifest().version;
 
@@ -23,6 +23,7 @@ async function refresh() {
   renderWatch();
   renderWhosOut();
   renderLastRun();
+  renderFailureCapture();
   renderLane();
   renderHallPass();
 }
@@ -259,5 +260,5 @@ settings = await loadSettings();
 const getSettings = () => settings;
 initWhosOut(getSettings);
 initWatch(getSettings);
-initTools();
+await initTools(getSettings);
 refresh();

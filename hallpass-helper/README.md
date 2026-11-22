@@ -33,9 +33,10 @@ The helper already knows HallPass's screens. The steps for making and ending a p
 - **Ending passes has the same two ways.** On the HallPass website, the helper ends a pass by clicking **End Pass** in the student's pass box, opening the box first (a click on the student's button) only if it's closed. From the home screen, the helper clicks the student's button, then **End Pass** and **Close** in the small window. When time is up or you press Back, the helper ends the pass the way the switch says.
 - **Destinations.** Bathroom, water and the rest are chosen by name from your Settings list, the same way you'd pick them in HallPass.
 - **HallPass has to stay open.** The helper works in your open HallPass tab. While it makes or ends a pass, it brings that tab forward for a moment and then switches back. To keep that out of sight (say, on a projector), give HallPass its own Chrome window.
-- **Name-free page outline.** If the helper gets stuck, use **Copy outline of open GoGuardian pages**. It produces a text outline of every open GoGuardian page with student and staff names turned into "Xxxxx". Look it over, then send it to yourself.
-- **Read-only self-check (dry run).** Click **Run read-only self-check (dry run)** in the side panel to check every built-in and learned selector, open dialog, and screen status indicator on your open GoGuardian pages without clicking or changing anything. The report is allowlist-scrubbed and checked for leaks before you copy it.
-- **Scrubbed DOM snapshot (for offline browser testing).** Click **Capture scrubbed DOM snapshot** to export a standalone HTML copy of an open GoGuardian page with all scripts, student avatar images, hidden nodes, URLs, emails, and non-UI text stripped locally in your browser. Real names are mapped to obvious synthetic placeholders (`Student Alpha`, `Demo Alpha`), and a **Privacy Audit** lists every single kept UI word so you can verify zero real names remain—plus **Preview in tab**, **Download .html**, and **Copy HTML**.
+- **Testing & Diagnostics drawer (collapsed by default).** All testing and teaching tools live in one collapsible drawer at the bottom of the side panel so day-to-day teaching stays uncluttered:
+  - **Record GoGuardian session (name-free).** Click **Record GoGuardian session**, use GoGuardian normally for a minute or two (including any tricky situations), then click **Stop & review bundle**. Every screen change is captured locally with scripts, avatars, hidden nodes, URLs, emails, and real names stripped into synthetic placeholders (`Student Alpha`, `Demo Alpha`). One unified **Privacy Audit** lists every single kept UI word across all frames before you preview, trim, or download a single `.json` bundle.
+  - **Automatic stuck-moment capture.** Whenever the helper actually gets stuck or hits an ambiguous step during class, it automatically freezes one strictly scrubbed snapshot + dry-run report (`Last stuck moment`) so you can review and download it after class without interrupting your lesson.
+  - **More tools.** Single-page scrubbed DOM snapshot, read-only dry-run self-check, page outline, and Watch mode remain neatly tucked under **More tools**.
 
 ## At school: setting it up
 
@@ -50,12 +51,12 @@ The helper already knows HallPass's screens. The steps for making and ending a p
    - your class lists, so names are suggested as you type (optional)
 5. Under the status line, set **Make and end passes through** to the way you use HallPass: the website, or the home screen with the Create Pass window.
 6. Type a student into the queue and watch the helper make the pass.
-7. Stuck somewhere? Click **Copy outline of open GoGuardian pages**, check the preview (names are hidden), and paste it into the chat along with which way you were using and which step it stopped on.
+7. Stuck somewhere? Open **Testing & Diagnostics** at the bottom of the side panel to review and download the auto-captured **Last stuck moment** (names hidden), or record a short **GoGuardian session** bundle.
 Updating later: remove the old HallPass Helper card in `chrome://extensions`, then use **Load unpacked** on the new download's `hallpass-helper` folder. (Or replace the folder and click the reload arrow.) Reload any open GoGuardian tabs afterward.
 
 ## Not built yet
 
-- **Telling a pass that's waiting in HallPass's own line from one that's out.** The 7 minutes start when the helper clicks Create. That needs a page outline of HallPass's waiting screen first.
+- **Telling a pass that's waiting in HallPass's own line from one that's out.** The 7 minutes start when the helper clicks Create. That needs a scrubbed capture of HallPass's waiting screen first.
 - **Noticing passes you end in HallPass by hand.** Use **Back** in the side panel instead, or **×** afterward, so the next student goes.
 
 ## Development
@@ -64,10 +65,11 @@ Plain JavaScript, no build step.
 
 ```sh
 cd hallpass-helper
-npm test                                    # logic tests (Node)
-npm install                                 # once, for the browser test
-npm run test:e2e                            # loads the extension in Chromium against e2e/mock-hallpass.html
-npm run test:snapshot -- path/to/snap.html  # loads an exported scrubbed snapshot in Chromium and runs the dry-run check
+npm test                                      # logic tests (Node)
+npm install                                   # once, for the browser test
+npm run test:e2e                              # loads the extension in Chromium against mock & real scrubbed fixtures
+npm run test:snapshot -- path/to/snap.html    # loads an exported single scrubbed snapshot in Chromium and runs dry-run check
+npm run test:bundle -- path/to/bundle.json    # replays every frame of an exported scrubbed session/failure bundle in Chromium
 ```
 
 `e2e/run.mjs` serves the mock page at `hallpass.goguardian.com` (and at `teacher.goguardian.com` as a stand-in home screen), then:
@@ -81,7 +83,8 @@ npm run test:snapshot -- path/to/snap.html  # loads an exported scrubbed snapsho
 - switches to the home screen → pop-up way and checks passes are made in the pop-up, not in the main HallPass tab, then switches back
 - checks that the outline has no names
 - runs the read-only self-check (dry run) and verifies selector matching with zero side effects and zero leaked names
-- captures a scrubbed DOM snapshot, checks the word audit and stripped scripts/avatars/hidden PII, and round-trips it in Chromium
+- captures a single scrubbed DOM snapshot, checks the word audit and stripped scripts/avatars/hidden PII, and round-trips it in Chromium
+- runs the multi-frame Flight Recorder, verifies clean unified privacy audit and per-frame removal, runs regression checks on `e2e/fixtures/campus-home-empty.html`, and verifies automatic failure capture when a step gets stuck
 
 Set `E2E_SHOTS=/some/dir` to save screenshots.
 
@@ -91,19 +94,21 @@ Set `E2E_SHOTS=/some/dir` to save screenshots.
 | `lib/queue.js` | The queue: name suggestions, who goes next, which passes are due to end |
 | `lib/storage.js` | Saved settings and their defaults |
 | `lib/tabs.js` | Finds the GoGuardian tab to work in (HallPass, the home screen or the Create Pass window) |
+| `lib/bundle.js` | Multi-frame session bundle state, deduplication, frame caps, unified privacy audit, and JSON export |
 | `content/core.js` | Plain-data helpers: guessing step roles, removing names, matching names, the outline's name filter |
-| `content/scrub.js` | Strict allowlist scrubber, synthetic name mapping (`Student Alpha`/`Demo Alpha`), and zero-leak verifier |
+| `content/scrub.js` | Strict allowlist scrubber, shared-session synthetic naming (`Student Alpha`/`Demo Alpha`), and zero-leak verifier |
 | `content/describe.js` | Describes an element so it can be found again after HallPass redraws |
 | `content/watch.js` | Watch mode, on the page: writes down clicks, what showed up after each, and which screens it saw |
 | `content/replay.js` | Runs the ways for a job: looks at the screen, skips what's done, clears pop-ups, tries the next way |
 | `content/outline.js` | The name-free page outline |
-| `content/snapshot.js` | Allowlist-scrubbed standalone HTML snapshot exporter with local privacy audit |
-| `content/diagnose.js` | Read-only dry-run self-check (evaluates selectors, open dialogs, and status words without clicking) |
+| `content/snapshot.js` | Allowlist-scrubbed standalone HTML snapshot exporter with local privacy audit and screen fingerprinting |
+| `content/diagnose.js` | Read-only dry-run self-check (evaluates selectors, open dialogs, alerts, filters, view mode, and status words without clicking) |
+| `content/recorder.js` | Read-only multi-frame Flight Recorder that captures scrubbed frames whenever GoGuardian's visible screen changes |
 | `content/hallpass.js` | Answers the side panel and background inside HallPass or the home screen |
-| `background.js` | Sends the next student when a spot opens, ends passes on time, notices |
+| `background.js` | Sends the next student when a spot opens, ends passes on time, coordinates Flight Recorder, and auto-captures scrubbed failure snapshots |
 | `lib/methods.js` | The two ways a pass is made, their directions, and which one the switch picked |
 | `lib/builtin.js` | The built-in steps for making and ending a pass, both ways (with what each screen looks like); installed on startup together with anything learned |
 | `lib/watch.js` | Watch mode logic: gathering, turning a demonstration into a way, folding it into what's known, the screen map, the report |
 | `lib/guide.js` | Works out the setup guide: which pages are seen and what to do next |
-| `sidepanel/` | Side panel: queue, way-to-make-passes switch, Watch card (`watch.js`), Out now, troubleshooting tools (`tools.js`) |
+| `sidepanel/` | Side panel: queue, way-to-make-passes switch, Out now, and collapsible Testing & Diagnostics drawer (`tools.js`, `watch.js`) |
 | `options/` | Settings page |

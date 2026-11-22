@@ -25,6 +25,8 @@ export const DEFAULTS = {
   siteMap: { screens: {}, edges: {} },
   // What the helper did on its last try (no names): { goal, lane, at, ok, notes: [...] }
   lastRun: null,
+  // Scrubbed snapshot + dry-run report automatically captured the last time the helper got stuck (zero PII).
+  lastFailureCapture: null,
   // Students waiting their turn, in order: [{ id, student, label, destination, addedAt }]
   queue: [],
   queuePaused: false,

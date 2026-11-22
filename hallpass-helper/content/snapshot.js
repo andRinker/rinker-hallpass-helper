@@ -48,8 +48,27 @@
     .hph-scrubbed-img { display: inline-block; width: 20px; height: 20px; border-radius: 50%; background: #ddd; vertical-align: middle; }
   `.trim();
 
-  HPH.captureSnapshot = ({ roster = [], forbidden = [], isPopup = false } = {}) => {
-    const scrubber = HPH.createScrubber({ roster, forbidden });
+  // Lightweight name-free fingerprint of visible headings, dialogs, alerts, and key controls so the
+  // multi-frame Flight Recorder only captures when the visible GoGuardian screen actually changes.
+  HPH.screenFingerprint = () => {
+    const parts = [HPH.pathShape(location.pathname)];
+    const sel = '[role=dialog], [role=alertdialog], [aria-modal=true], dialog[open], [role=alert], [aria-live], h1, h2, h3, [role=heading], [role=option], [role=radio][aria-checked=true], button';
+    const seen = [];
+    for (const el of document.querySelectorAll(sel)) {
+      if (el.closest("[data-hph-ui]") || !HPH.visible(el)) continue;
+      const tag = el.tagName.toLowerCase();
+      const role = HPH.roleOf(el);
+      const name = HPH.accessibleName(el).slice(0, 40);
+      const safe = HPH.redact(name);
+      seen.push(`${tag}:${role}:${safe}`);
+      if (seen.length >= 80) break;
+    }
+    parts.push(String(seen.length), seen.join("|"));
+    return parts.join("##");
+  };
+
+  HPH.captureSnapshot = ({ roster = [], forbidden = [], isPopup = false, session = null } = {}) => {
+    const scrubber = HPH.createScrubber({ roster, forbidden, session });
     const stats = {
       elementsKept: 0,
       hiddenSkipped: 0,
@@ -206,7 +225,9 @@
       }
 
       // Safe CSS utility/semantic classes (preserves Tailwind & role-matching classes without hashes).
-      const classes = scrubber.scrubClasses(el.classList);
+      // Drop bare `hidden` when the element is actually visible (e.g. Tailwind's `hidden md:flex` where `md:flex` was stripped).
+      const displayVisible = getComputedStyle(el).display !== "none";
+      const classes = scrubber.scrubClasses(el.classList).filter((c) => !(displayVisible && c === "hidden"));
       if (classes.length) {
         attrs.push(`class="${escAttr(classes.join(" "))}"`);
         keptAttrCount++;

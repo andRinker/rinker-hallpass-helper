@@ -97,6 +97,58 @@
         isPopup,
       });
     },
+    "record-start": async (settings) => {
+      HPH.startRecording(settings);
+      return { ok: true };
+    },
+    "record-stop": async () => {
+      HPH.stopRecording();
+      return { ok: true };
+    },
+    "capture-failure": async ({ isPopup = false, trigger = "Helper got stuck" } = {}) => {
+      const s = await chrome.storage.local.get({
+        school: "",
+        teacherName: "",
+        origin: "",
+        destinations: [],
+        roster: [],
+        macros: {},
+        lane: "",
+        outPasses: [],
+        queue: [],
+      });
+      const forbidden = [
+        { value: s.school, replacement: "Sample School" },
+        { value: s.teacherName, replacement: "Sample Teacher" },
+        { value: s.origin, replacement: "Room 101" },
+      ];
+      const session = HPH.createScrubSession();
+      const snap = HPH.captureSnapshot({ roster: s.roster, forbidden, isPopup, session });
+      const diag = HPH.diagnosePage({
+        macros: s.macros,
+        lane: s.lane,
+        roster: s.roster,
+        forbidden,
+        outPasses: s.outPasses,
+        queue: s.queue,
+        destinations: s.destinations,
+        isPopup,
+      });
+      const clean = !!(snap.audit?.clean && diag.audit?.clean);
+      const leaks = [...new Set([...(snap.audit?.leaks ?? []), ...(diag.audit?.leaks ?? [])])];
+      return {
+        ok: true,
+        frame: {
+          at: Date.now(),
+          trigger,
+          fingerprint: HPH.screenFingerprint(),
+          meta: snap.meta,
+          html: snap.html,
+          diagnoseReport: diag.report,
+          audit: { ...snap.audit, clean, leaks },
+        },
+      };
+    },
   };
 
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {

@@ -7,6 +7,7 @@ import { installBuiltin } from "./lib/builtin.js";
 import { END_ORDER, METHODS, SEND_ORDER, chosenLane, endMethods, kindOfMacro, makeMethods, method, methodPlace, openerPlace } from "./lib/methods.js";
 import { dueToEnd, endsAt, nextToSend } from "./lib/queue.js";
 import { applyEvent, emptyWatch } from "./lib/watch.js";
+import { addFrame, emptyRecording } from "./lib/bundle.js";
 
 const WATCHED = ["queue", "queuePaused", "outPasses", "maxOut", "autoEndMinutes", "macros"];
 
@@ -37,6 +38,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
   if (msg?.type?.startsWith("watch-")) {
     watchMessage(msg, sender).then(sendResponse, (err) => sendResponse({ ok: false, reason: String(err) }));
+    return true;
+  }
+  if (msg?.type?.startsWith("record-")) {
+    recordMessage(msg, sender).then(sendResponse, (err) => sendResponse({ ok: false, reason: String(err) }));
     return true;
   }
   return false;
@@ -95,6 +100,87 @@ async function watchMessage(msg, sender) {
     await changeWatch(() => emptyWatch());
     sync();
     return { ok: true, events: done.events.length >= state.events.length ? done.events : state.events, screens: done.screens, edges: done.edges, goal: state.goal };
+  }
+  return { ok: false };
+}
+
+// --- Scrubbed Flight Recorder: multi-frame session bundle stored only in memory (chrome.storage.session) ---
+
+const RECORD_KEY = "recording";
+const getRecording = async () => (await chrome.storage.session.get({ [RECORD_KEY]: emptyRecording() }))[RECORD_KEY];
+let recordChain = Promise.resolve();
+function changeRecording(fn) {
+  return (recordChain = recordChain.catch(() => {}).then(async () => {
+    const state = await getRecording();
+    const next = await fn(state);
+    if (next && next !== state) await chrome.storage.session.set({ [RECORD_KEY]: next });
+    return next ?? state;
+  }));
+}
+
+async function recordConfig(isPopup) {
+  const s = await loadSettings();
+  return {
+    isPopup: !!isPopup,
+    roster: s.roster,
+    forbidden: [
+      { value: s.school, replacement: "Sample School" },
+      { value: s.teacherName, replacement: "Sample Teacher" },
+      { value: s.origin, replacement: "Room 101" },
+    ],
+    macros: s.macros,
+    lane: s.lane,
+    outPasses: s.outPasses,
+    queue: s.queue,
+    destinations: s.destinations,
+  };
+}
+
+async function recordMessage(msg, sender) {
+  if (msg.type === "record-frame") {
+    if (!msg.frame?.html) return { ok: false };
+    await changeRecording((state) => addFrame(state, msg.frame));
+    return { ok: true };
+  }
+  if (msg.type === "record-hello") {
+    const state = await getRecording();
+    if (!state.active) return { active: false };
+    const popups = await popupWindowIds();
+    const isPopup = !!(sender.tab && popups.has(sender.tab.windowId));
+    return { active: true, settings: await recordConfig(isPopup) };
+  }
+  if (msg.type === "record-begin") {
+    await changeRecording(() => ({ ...emptyRecording(), active: true, startedAt: Date.now() }));
+    const popups = await popupWindowIds();
+    const tabs = await allGoGuardianTabs();
+    for (const tab of tabs) {
+      const cfg = await recordConfig(popups.has(tab.windowId));
+      chrome.tabs.sendMessage(tab.id, { type: "record-start", ...cfg }).catch(() => {});
+    }
+    return { ok: true, tabs: tabs.length };
+  }
+  if (msg.type === "record-info") {
+    const s = await getRecording();
+    return {
+      ok: true,
+      active: s.active,
+      count: s.frames.length,
+      dropped: s.dropped ?? 0,
+      pages: [...new Set(s.frames.map((f) => f.meta?.host).filter(Boolean))],
+      frames: s.active ? undefined : s.frames,
+    };
+  }
+  if (msg.type === "record-end") {
+    for (const tab of await allGoGuardianTabs()) {
+      chrome.tabs.sendMessage(tab.id, { type: "record-stop" }).catch(() => {});
+    }
+    await new Promise((r) => setTimeout(r, 350));
+    const done = await changeRecording((state) => ({ ...state, active: false }));
+    return { ok: true, frames: done.frames ?? [], dropped: done.dropped ?? 0 };
+  }
+  if (msg.type === "record-clear") {
+    await changeRecording(() => emptyRecording());
+    return { ok: true };
   }
   return { ok: false };
 }
@@ -251,6 +337,32 @@ async function saveRun(goal, lane, result) {
   });
 }
 
+// Automatically freezes one strictly scrubbed snapshot + dry-run report when a run gets stuck or ambiguous,
+// so the teacher can grab the exact failure state later without interrupting class. Only stored if verifyClean passes.
+async function captureFailure(tab, { goal, lane, result }) {
+  if (!tab?.id || !result || result.ok) return;
+  try {
+    const popups = await popupWindowIds();
+    const isPopup = popups.has(tab.windowId);
+    const trigger = `Auto-captured on ${goal} failure (${result.reason ?? "error"}${result.step ? ` at step ${result.step}` : ""})`;
+    const res = await chrome.tabs.sendMessage(tab.id, { type: "capture-failure", isPopup, trigger }).catch(() => null);
+    if (!res?.ok || !res.frame?.audit?.clean) return;
+    await saveSettings({
+      lastFailureCapture: {
+        at: Date.now(),
+        goal,
+        lane,
+        reason: result.reason ?? "stuck",
+        step: result.step ?? null,
+        label: result.label ?? "",
+        frame: res.frame,
+      },
+    });
+  } catch {
+    // Best-effort diagnostic capture; never interfere with queue handling.
+  }
+}
+
 // The other ways, for when "try the other way if this one gets stuck" is switched on.
 const lanesToTry = (settings, lane) => (settings.fallback ? [lane, ...METHODS.map((m) => m.kind).filter((k) => k !== lane)] : [lane]);
 
@@ -279,6 +391,7 @@ async function sendVia(entry, settings, lane) {
   if (TRY_LATER.has(result?.reason)) return { status: "later" };
   await saveRun("make", kind, result);
   if (!result?.ok) {
+    await captureFailure(tab, { goal: "make", lane: kind, result });
     // Only a clean "stuck" is safe to try another way after. No reply, or two matching students, is not.
     return { status: "failed", why: stuckText(result, name), retryable: result?.reason === "stuck" };
   }
@@ -347,7 +460,10 @@ async function endVia(pass, settings, lane) {
   if (!result && kind === "create" && (await readyTab({ kind: "create" })).state === "closed") result = { ok: true };
   if (TRY_LATER.has(result?.reason)) return { status: "later", result };
   await saveRun("end", kind, result);
-  if (!result?.ok) return { status: "failed", why: stuckText(result, name), retryable: result?.reason === "stuck", result };
+  if (!result?.ok) {
+    await captureFailure(tab, { goal: "end", lane: kind, result });
+    return { status: "failed", why: stuckText(result, name), retryable: result?.reason === "stuck", result };
+  }
   return { status: "ended" };
 }
 

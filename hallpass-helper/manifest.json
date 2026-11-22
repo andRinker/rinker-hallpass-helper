@@ -51,6 +51,7 @@
         "content/outline.js",
         "content/snapshot.js",
         "content/diagnose.js",
+        "content/recorder.js",
         "content/hallpass.js"
       ],
       "run_at": "document_idle"

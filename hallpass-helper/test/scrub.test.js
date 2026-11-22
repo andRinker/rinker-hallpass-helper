@@ -109,3 +109,19 @@ test("verifyClean detects leaked roster names, settings, and emails while ignori
   assert.equal(r4.clean, false);
   assert.ok(r4.leaks.some((l) => l.startsWith("setting")));
 });
+
+test("createScrubSession keeps synthetic names consistent across multiple frames", () => {
+  const session = HPH.createScrubSession();
+  const s1 = HPH.createScrubber({ roster, forbidden, session });
+  const frame1 = s1.scrubText("Active: Jordan Miller and Marcus Vance");
+  assert.match(frame1, /Student Alpha/);
+  assert.match(frame1, /Demo Alpha/);
+
+  const s2 = HPH.createScrubber({ roster, forbidden, session });
+  const frame2 = s2.scrubText("Pass Details: Ava Lee, Jordan Miller, Marcus Vance");
+  assert.match(frame2, /Student Bravo/);
+  assert.match(frame2, /Student Alpha/);
+  assert.match(frame2, /Demo Alpha/);
+  assert.ok(s2.audit().syntheticNames.includes("Student Alpha"));
+  assert.ok(s2.audit().syntheticNames.includes("Student Bravo"));
+});

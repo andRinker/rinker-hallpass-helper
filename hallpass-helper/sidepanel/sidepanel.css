@@ -493,3 +493,103 @@ header h1 {
   border: 1px solid var(--line);
 }
 
+.testing-drawer {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.testing-drawer > summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 13.5px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.testing-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--chip);
+  color: var(--accent);
+}
+
+.testing-badge[data-kind="alert"] {
+  background: color-mix(in srgb, var(--danger) 15%, var(--bg));
+  color: var(--danger);
+}
+
+.testing-badge[data-kind="recording"] {
+  background: color-mix(in srgb, var(--accent) 18%, var(--bg));
+  color: var(--accent);
+}
+
+.drawer-body {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.drawer-body h3 {
+  font-size: 13.5px;
+  margin-bottom: 4px;
+}
+
+.frame-list {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 5px;
+}
+
+.frame-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  font-size: 12.5px;
+}
+
+.frame-info {
+  display: grid;
+  min-width: 0;
+}
+
+.frame-info strong,
+.frame-info span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.advanced-tools {
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+}
+
+.advanced-tools > summary {
+  cursor: pointer;
+  font-size: 12.5px;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.advanced-tools[open] > summary {
+  margin-bottom: 10px;
+}
+
+.advanced-tools .teach {
+  margin-bottom: 10px;
+}
+
+

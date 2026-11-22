@@ -1,17 +1,55 @@
-// Testing & troubleshooting tools in the side panel:
-//  1. Read-only self-check (dry run) — tests selectors and screen state without clicking anything.
-//  2. Scrubbed DOM snapshot — captures allowlist-scrubbed HTML with a one-screen word audit and local preview.
-//  3. Page outline — compact text outline of open GoGuardian pages.
+// Testing & Diagnostics drawer in the side panel:
+//  Primary:
+//   - Multi-frame Scrubbed Flight Recorder (record session -> 1 unified Privacy Audit -> download .json bundle)
+//   - Automatic Failure Capture card (review & download last stuck moment)
+//  Secondary (under More tools):
+//   - Read-only self-check (dry run)
+//   - Single scrubbed DOM snapshot
+//   - Page outline
 import { allGoGuardianTabs, hostOf } from "../lib/tabs.js";
+import { saveSettings } from "../lib/storage.js";
+import { chosenLane } from "../lib/methods.js";
+import { exportBundle, removeFrame, summarizeBundle } from "../lib/bundle.js";
 import { $, h, toast } from "./shared.js";
 
+let getSettings = () => ({});
 let snapshots = [];
 let selectedSnapshot = 0;
 
-function hideAllBoxes() {
+let recordMode = "idle"; // idle | recording | review
+let recordFrames = [];
+let recordDropped = 0;
+let recordTimer = null;
+
+const sendBg = (msg) => chrome.runtime.sendMessage(msg).catch(() => null);
+
+function hideLegacyBoxes() {
   $("outlineBox").hidden = true;
   $("diagnoseBox").hidden = true;
   $("snapshotBox").hidden = true;
+}
+
+function previewHtmlInTab(html) {
+  const url = URL.createObjectURL(new Blob([html], { type: "text/html;charset=utf-8" }));
+  chrome.tabs.create({ url });
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
+function downloadBlob(content, type, filename) {
+  const url = URL.createObjectURL(new Blob([content], { type }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+function renderWordPills(container, words) {
+  container.replaceChildren(
+    ...(words?.length
+      ? words.map((w) => h("span", { class: "word-pill" }, w))
+      : [h("span", { class: "hint" }, "No text words kept.")]),
+  );
 }
 
 async function tabLabel(tab) {
@@ -24,7 +62,180 @@ async function tabLabel(tab) {
   };
 }
 
-// --- 1. Page outline (existing behavior preserved) ---
+// --- Flight Recorder (multi-frame scrubbed session bundle) ---
+
+function updateDrawerBadge() {
+  const badge = $("testingBadge");
+  const failure = getSettings()?.lastFailureCapture;
+  if (recordMode === "recording") {
+    badge.textContent = `Recording (${recordFrames.length})`;
+    badge.dataset.kind = "recording";
+    badge.hidden = false;
+  } else if (recordMode === "review" && recordFrames.length) {
+    badge.textContent = `${recordFrames.length} screen${recordFrames.length === 1 ? "" : "s"} ready`;
+    badge.dataset.kind = "ready";
+    badge.hidden = false;
+  } else if (failure?.frame) {
+    badge.textContent = "1 stuck moment saved";
+    badge.dataset.kind = "alert";
+    badge.hidden = false;
+  } else {
+    badge.hidden = true;
+  }
+}
+
+function renderRecorder() {
+  $("recordIdle").hidden = recordMode !== "idle";
+  $("recordActive").hidden = recordMode !== "recording";
+  $("recordReview").hidden = recordMode !== "review";
+
+  if (recordMode === "review") {
+    const summary = summarizeBundle(recordFrames);
+    const s = summary.stats;
+    const status = $("bundleStatus");
+    status.dataset.clean = summary.clean ? "yes" : "no";
+    status.textContent = summary.clean
+      ? `Privacy check passed — 0 student, staff, school, or email leaks across ${s.frames} screen${s.frames === 1 ? "" : "s"}.`
+      : `Privacy check flagged: ${summary.leaks.join(", ")}. Review or remove flagged screens before sharing.`;
+
+    const replaced = s.rosterHits + s.forbiddenHits + s.unknownReplacements;
+    const synNote = summary.syntheticNames.length
+      ? ` (${summary.syntheticNames.slice(0, 4).join(", ")}${summary.syntheticNames.length > 4 ? ", …" : ""})`
+      : "";
+    const dropNote = recordDropped ? ` · ${recordDropped} extra screen(s) skipped after cap` : "";
+    $("bundleStats").textContent =
+      `Stripped ${s.scriptsStripped} script(s), ${s.imagesStripped} image(s), ${s.hiddenSkipped} hidden node(s) · Scrubbed ${replaced} non-UI text item(s)${synNote}${dropNote}.`;
+
+    $("bundleWordsSummary").textContent = `Inspect every kept word across all screens (${summary.keptWords.length} unique UI words)`;
+    renderWordPills($("bundleWords"), summary.keptWords);
+
+    $("bundleFrames").replaceChildren(
+      ...recordFrames.map((frame, i) =>
+        h(
+          "li",
+          { class: "frame-row" },
+          h(
+            "div",
+            { class: "frame-info" },
+            h("strong", {}, `${i + 1}. ${frame.trigger || "Screen captured"}`),
+            h("span", { class: "hint" }, `${frame.meta?.host ?? "goguardian"}${frame.meta?.isPopup ? " (pop-up)" : ""} · ${frame.audit?.clean ? "clean" : "flagged"}`),
+          ),
+          h("button", { class: "link", type: "button", onclick: () => previewHtmlInTab(frame.html) }, "Preview"),
+          h(
+            "button",
+            {
+              class: "link remove",
+              type: "button",
+              title: "Remove this screen",
+              "aria-label": `Remove screen ${i + 1}`,
+              onclick: () => {
+                recordFrames = removeFrame(recordFrames, i);
+                if (!recordFrames.length) {
+                  recordMode = "idle";
+                  sendBg({ type: "record-clear" });
+                }
+                renderRecorder();
+              },
+            },
+            "×",
+          ),
+        ),
+      ),
+    );
+  }
+  updateDrawerBadge();
+}
+
+function pollRecording() {
+  clearInterval(recordTimer);
+  recordTimer = setInterval(async () => {
+    if (recordMode !== "recording") return clearInterval(recordTimer);
+    const info = await sendBg({ type: "record-info" });
+    if (!info?.active) return;
+    recordFrames = new Array(info.count);
+    recordDropped = info.dropped ?? 0;
+    const pages = info.pages?.length ? ` · on ${info.pages.join(", ")}` : "";
+    $("recordStatus").textContent = `Recording… ${info.count} screen${info.count === 1 ? "" : "s"} captured${pages}`;
+    updateDrawerBadge();
+  }, 800);
+}
+
+async function startRecording() {
+  const tabs = await allGoGuardianTabs();
+  if (!tabs.length) {
+    toast("Open HallPass or GoGuardian first.");
+    return;
+  }
+  await sendBg({ type: "record-begin" });
+  recordMode = "recording";
+  recordFrames = [];
+  recordDropped = 0;
+  $("recordStatus").textContent = "Recording… 0 screens captured. Use GoGuardian normally, then click Stop.";
+  pollRecording();
+  renderRecorder();
+}
+
+async function stopRecording(keep) {
+  clearInterval(recordTimer);
+  const res = await sendBg({ type: "record-end" });
+  if (!keep) {
+    await sendBg({ type: "record-clear" });
+    recordMode = "idle";
+    recordFrames = [];
+    recordDropped = 0;
+    renderRecorder();
+    return;
+  }
+  const frames = res?.frames ?? [];
+  recordDropped = res?.dropped ?? 0;
+  if (!frames.length) {
+    await sendBg({ type: "record-clear" });
+    recordMode = "idle";
+    recordFrames = [];
+    toast("No GoGuardian screens were captured. Reload your GoGuardian tab and try again.");
+    renderRecorder();
+    return;
+  }
+  recordFrames = frames;
+  recordMode = "review";
+  renderRecorder();
+}
+
+function currentBundleJson() {
+  const s = getSettings();
+  const version = chrome.runtime.getManifest().version_name ?? chrome.runtime.getManifest().version;
+  return JSON.stringify(exportBundle({ frames: recordFrames, helperVersion: version, lane: chosenLane(s), kind: "session" }), null, 2);
+}
+
+// --- Automatic Failure Capture card ---
+
+export function renderFailureCapture() {
+  const cap = getSettings()?.lastFailureCapture;
+  const has = !!cap?.frame?.html;
+  $("failureCard").hidden = !has;
+  $("reviewFailureLink").hidden = !has;
+  if (!has) {
+    updateDrawerBadge();
+    return;
+  }
+  const minutes = Math.max(0, Math.round((Date.now() - cap.at) / 60000));
+  const when = minutes < 1 ? "just now" : `${minutes} min ago`;
+  const what = cap.goal === "make" ? "making a pass" : "ending a pass";
+  $("failureSummary").textContent = `Captured automatically while ${what} (${cap.reason}${cap.step ? ` at step ${cap.step}` : ""}), ${when}.`;
+
+  const a = cap.frame.audit;
+  const banner = $("failureAuditBanner");
+  banner.dataset.clean = a?.clean ? "yes" : "no";
+  banner.textContent = a?.clean
+    ? "Privacy check passed — 0 student, staff, school, or email leaks found."
+    : `Privacy check flagged: ${(a?.leaks ?? []).join(", ")}.`;
+
+  $("failureWordsSummary").textContent = `Inspect every kept word (${a?.keptWords?.length ?? 0} unique UI words)`;
+  renderWordPills($("failureWords"), a?.keptWords ?? []);
+  updateDrawerBadge();
+}
+
+// --- Legacy / single-page tools (under More tools) ---
 
 async function showOutline() {
   const tabs = await allGoGuardianTabs();
@@ -42,12 +253,10 @@ async function showOutline() {
     parts.length === 1
       ? parts[0].text
       : parts.map((p, i) => `===== Page ${i + 1} of ${parts.length}: ${p.head} =====\n${p.text ?? "(the helper can't read this page. Reload it.)"}`).join("\n\n");
-  hideAllBoxes();
+  hideLegacyBoxes();
   $("outlineText").value = text;
   $("outlineBox").hidden = false;
 }
-
-// --- 2. Read-only self-check (dry run) ---
 
 async function runDiagnose() {
   const tabs = await allGoGuardianTabs();
@@ -77,7 +286,7 @@ async function runDiagnose() {
       ? parts[0].report
       : parts.map((p, i) => `===== Page ${i + 1} of ${parts.length}: ${p.head} =====\n${p.report ?? "(the helper can't read this page. Reload it.)"}`).join("\n\n");
 
-  hideAllBoxes();
+  hideLegacyBoxes();
   const badge = $("diagnoseBadge");
   badge.dataset.clean = allClean ? "yes" : "no";
   badge.textContent = allClean
@@ -86,8 +295,6 @@ async function runDiagnose() {
   $("diagnoseText").value = text;
   $("diagnoseBox").hidden = false;
 }
-
-// --- 3. Scrubbed DOM snapshot + word audit ---
 
 function renderSelectedSnapshot() {
   const item = snapshots[selectedSnapshot];
@@ -107,11 +314,7 @@ function renderSelectedSnapshot() {
     `Kept ${s.elementsKept} visible elements · Stripped ${s.scriptsStripped} script(s), ${s.imagesStripped} image(s), ${s.hiddenSkipped} hidden node(s) · Scrubbed ${replaced} non-UI text item(s)${synNote}.`;
 
   $("snapshotWordsSummary").textContent = `Inspect every kept word (${audit.keptWords.length} unique UI words)`;
-  $("snapshotWords").replaceChildren(
-    ...(audit.keptWords.length
-      ? audit.keptWords.map((w) => h("span", { class: "word-pill" }, w))
-      : [h("span", { class: "hint" }, "No text words kept.")]),
-  );
+  renderWordPills($("snapshotWords"), audit.keptWords);
   $("snapshotHtml").value = html;
 }
 
@@ -135,12 +338,81 @@ async function captureSnapshots() {
   picker.replaceChildren(...snapshots.map((item, i) => h("option", { value: String(i) }, item.head)));
   picker.hidden = snapshots.length < 2;
 
-  hideAllBoxes();
+  hideLegacyBoxes();
   renderSelectedSnapshot();
   $("snapshotBox").hidden = false;
 }
 
-export function initTools() {
+export async function initTools(settingsGetter) {
+  getSettings = settingsGetter;
+
+  // Restore in-progress or unreviewed recording if the side panel was closed and reopened.
+  const info = await sendBg({ type: "record-info" });
+  if (info?.active) {
+    recordMode = "recording";
+    recordFrames = new Array(info.count ?? 0);
+    recordDropped = info.dropped ?? 0;
+    $("recordStatus").textContent = `Recording… ${info.count ?? 0} screen${info.count === 1 ? "" : "s"} captured`;
+    $("testingDrawer").open = true;
+    pollRecording();
+  } else if (info?.frames?.length) {
+    recordMode = "review";
+    recordFrames = info.frames;
+    recordDropped = info.dropped ?? 0;
+  }
+  renderRecorder();
+  renderFailureCapture();
+
+  // Flight Recorder buttons
+  $("recordButton").addEventListener("click", startRecording);
+  $("stopRecordButton").addEventListener("click", () => stopRecording(true));
+  $("cancelRecordButton").addEventListener("click", () => stopRecording(false));
+  $("downloadBundle").addEventListener("click", () => {
+    const date = new Date().toISOString().slice(0, 10);
+    const name = `hallpass-session-${date}.json`;
+    downloadBlob(currentBundleJson(), "application/json;charset=utf-8", name);
+    toast(`Saved ${name}.`);
+  });
+  $("copyBundle").addEventListener("click", async () => {
+    await navigator.clipboard.writeText(currentBundleJson());
+    toast("Copied scrubbed session bundle JSON.");
+  });
+  $("discardBundle").addEventListener("click", async () => {
+    await sendBg({ type: "record-clear" });
+    recordMode = "idle";
+    recordFrames = [];
+    recordDropped = 0;
+    renderRecorder();
+  });
+
+  // Automatic Failure Capture buttons
+  $("reviewFailureLink").addEventListener("click", () => {
+    $("testingDrawer").open = true;
+    $("failureCard").scrollIntoView({ behavior: "smooth", block: "nearest" });
+  });
+  $("previewFailure").addEventListener("click", () => {
+    const html = getSettings()?.lastFailureCapture?.frame?.html;
+    if (html) previewHtmlInTab(html);
+  });
+  $("downloadFailure").addEventListener("click", () => {
+    const cap = getSettings()?.lastFailureCapture;
+    if (!cap?.frame) return;
+    const version = chrome.runtime.getManifest().version_name ?? chrome.runtime.getManifest().version;
+    const json = JSON.stringify(
+      exportBundle({ frames: [cap.frame], helperVersion: version, lane: cap.lane, kind: "failure" }),
+      null,
+      2,
+    );
+    const name = `hallpass-failure-${cap.goal}-${new Date(cap.at).toISOString().slice(0, 10)}.json`;
+    downloadBlob(json, "application/json;charset=utf-8", name);
+    toast(`Saved ${name}.`);
+  });
+  $("clearFailure").addEventListener("click", async () => {
+    await saveSettings({ lastFailureCapture: null });
+    toast("Cleared saved failure capture.");
+  });
+
+  // Legacy / single-page buttons
   $("outlineButton").addEventListener("click", showOutline);
   $("closeOutline").addEventListener("click", () => ($("outlineBox").hidden = true));
   $("copyOutline").addEventListener("click", async () => {
@@ -161,27 +433,16 @@ export function initTools() {
     selectedSnapshot = Number(e.target.value) || 0;
     renderSelectedSnapshot();
   });
-
   $("previewSnapshot").addEventListener("click", () => {
     const item = snapshots[selectedSnapshot];
-    if (!item) return;
-    const url = URL.createObjectURL(new Blob([item.result.html], { type: "text/html;charset=utf-8" }));
-    chrome.tabs.create({ url });
-    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    if (item) previewHtmlInTab(item.result.html);
   });
-
   $("downloadSnapshot").addEventListener("click", () => {
     const item = snapshots[selectedSnapshot];
     if (!item) return;
-    const url = URL.createObjectURL(new Blob([item.result.html], { type: "text/html;charset=utf-8" }));
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = item.result.filename;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    downloadBlob(item.result.html, "text/html;charset=utf-8", item.result.filename);
     toast(`Saved ${item.result.filename}.`);
   });
-
   $("copySnapshot").addEventListener("click", async () => {
     const item = snapshots[selectedSnapshot];
     if (!item) return;

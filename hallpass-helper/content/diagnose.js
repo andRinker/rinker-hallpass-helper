@@ -125,6 +125,35 @@
         }
       });
 
+    // 5b. Real GoGuardian signals: live alerts/toasts, Table vs Grid view, active filters, dismissible banners
+    const alerts = [...document.querySelectorAll('[role=alert], [aria-live=polite], [aria-live=assertive]')]
+      .filter((el) => HPH.visible(el) && !el.closest("[data-hph-ui]"))
+      .map((el) => scrub((el.innerText || "").replace(/\s+/g, " ").trim()))
+      .filter(Boolean)
+      .slice(0, 6);
+
+    const viewRadio = [...document.querySelectorAll('[role=radio][aria-checked=true]')]
+      .filter((el) => HPH.visible(el) && !el.closest("[data-hph-ui]"))
+      .map((el) => scrub(HPH.accessibleName(el)))
+      .filter(Boolean);
+
+    const activeFilters = [];
+    for (const inp of document.querySelectorAll('input[type=search], input[aria-label*="Search" i]')) {
+      if (!inp.closest("[data-hph-ui]") && HPH.visible(inp) && inp.value.trim()) {
+        activeFilters.push(`${scrub(HPH.accessibleName(inp) || "search")}="${scrub(inp.value)}"`);
+      }
+    }
+    const statusFilter = [...document.querySelectorAll('[role=combobox][aria-label*="Status" i]')].find(
+      (el) => HPH.visible(el) && !el.closest("[data-hph-ui]"),
+    );
+    if (statusFilter) {
+      const txt = scrub((statusFilter.innerText || "").replace(/\s+/g, " ").trim());
+      if (txt) activeFilters.push(`Status filter="${txt}"`);
+    }
+
+    const dismissibleBanners = [...document.querySelectorAll('button[aria-label="Dismiss" i], [role=button][aria-label="Dismiss" i]')]
+      .filter((el) => HPH.visible(el) && !el.closest("[data-hph-ui]") && !el.closest("[role=dialog], [role=alertdialog]")).length;
+
     // 6. Dry-run macro step checks (strictly read-only)
     const probe = pickProbe({ outPasses, queue, roster, destinations });
     const params = { student: probe.student, destination: probe.destination };
@@ -137,12 +166,16 @@
         const stepResults = steps.map((step, i) => {
           const done = step.done?.length ? allSeen(step.done, params) : false;
           const els = findStepNow(step, params);
+          const pickIdx = (step.target?.index ?? 0) < els.length ? (step.target?.index ?? 0) : 0;
+          const pausesOnTie = step.role === "student" || !!step.optional;
           const status = done
             ? "SKIP (already done)"
             : els.length === 1
               ? "READY (1 match)"
               : els.length > 1
-                ? `AMBIGUOUS (${els.length} matches)`
+                ? pausesOnTie
+                  ? `AMBIGUOUS (${els.length} matches — would pause)`
+                  : `READY (${els.length} matches, picks #${pickIdx + 1})`
                 : "not on screen (0)";
           return {
             index: i + 1,
@@ -153,7 +186,7 @@
             done,
             count: els.length,
             status,
-            matched: els[0] ? describeMatch(els[0], scrubber) : null,
+            matched: els[pickIdx] ? describeMatch(els[pickIdx], scrubber) : null,
           };
         });
         const firstRequired = stepResults.find((s) => !s.optional && !s.peek);
@@ -178,6 +211,10 @@
       "Screen state right now:",
       `  Headings: ${headings.length ? headings.join(" | ") : "(none visible)"}`,
       `  Open dialogs/modals: ${dialogs.length ? dialogs.map((d) => `"${d.label}"${d.hasDismiss ? ` [dismiss: "${d.dismissLabel}"]` : ""}`).join("; ") : "none"}`,
+      ...(alerts.length ? [`  Alerts/toasts: ${alerts.join(" | ")}`] : []),
+      ...(viewRadio.length ? [`  Selected view/radio: ${viewRadio.join(", ")}`] : []),
+      ...(activeFilters.length ? [`  Filters: ${activeFilters.join("; ")}`] : []),
+      ...(dismissibleBanners ? [`  Dismissible banners: ${dismissibleBanners}`] : []),
       `  Scrollable lists: ${scrollAreas.length ? scrollAreas.map((a) => `${a.desc} (${a.clientHeight}px / ${a.scrollHeight}px)`).join("; ") : "none"}`,
       `  Status words seen: ${Object.keys(statusCounts).length ? Object.entries(statusCounts).map(([w, n]) => `${w}(${n})`).join(", ") : "none"}`,
     ];
@@ -214,10 +251,11 @@
         host: safeHost,
         isPopup,
         dialogs: dialogs.length,
+        alerts: alerts.length,
         readyRoutes,
         totalMacros,
       },
-      data: { headings, dialogs, statusCounts, scrollAreas, iframes, macroResults },
+      data: { headings, dialogs, alerts, viewRadio, activeFilters, dismissibleBanners, statusCounts, scrollAreas, iframes, macroResults },
       audit: {
         clean: check.clean,
         leaks: check.leaks,
