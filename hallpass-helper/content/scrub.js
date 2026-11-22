@@ -24,6 +24,9 @@
 
   const SYNTHETIC_PREFIXES = new Set(["student", "demo", "sample"]);
   const PHONETIC_LOWER = new Set(PHONETIC.map((w) => w.toLowerCase()));
+  // Avatar badges often render 2-letter all-caps student initials (e.g. "AS", "IN", "ON") that collide
+  // with lowercase UI words; only keep true uppercase UI abbreviations.
+  const SAFE_TWO_LETTER_CAPS = new Set(["OK", "AM", "PM"]);
 
   function escapeRe(str) {
     return String(str).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -174,17 +177,20 @@
         return protect("999");
       });
 
+      const isAvatarInitial = (w) => /^[A-Z]{2}$/.test(w) && !SAFE_TWO_LETTER_CAPS.has(w);
+
       // 5. Catch multi-word capitalized unknown sequences (e.g., students not on this teacher's roster
       //    or other staff names) and map them deterministically to "Demo Alpha", "Demo Bravo", etc.
       text = text.replace(/\b[\p{Lu}][\p{L}'’-]+(?:\s+[\p{Lu}][\p{L}'’-]+)+\b/gu, (match) => {
         const words = match.split(/\s+/);
         const allAllowed = words.every((w) => {
           const lw = w.toLowerCase();
-          return uiWords.has(lw) && !rosterSingleTokens.has(lw) && !forbiddenSingleTokens.has(lw);
+          return !isAvatarInitial(w) && uiWords.has(lw) && !rosterSingleTokens.has(lw) && !forbiddenSingleTokens.has(lw);
         });
         if (allAllowed) return match;
         // If only a subset are unknown (e.g. "Pass for Jordan"), leave to token pass unless every word is non-UI or roster.
-        const anyKnownUiLead = uiWords.has(words[0].toLowerCase()) && !rosterSingleTokens.has(words[0].toLowerCase());
+        const anyKnownUiLead =
+          !isAvatarInitial(words[0]) && uiWords.has(words[0].toLowerCase()) && !rosterSingleTokens.has(words[0].toLowerCase());
         if (anyKnownUiLead) return match;
         return protect(mapDemo(HPH.normalize(match)));
       });
@@ -205,6 +211,10 @@
         if (forbiddenSingleTokens.has(lw)) {
           stats.forbiddenHits++;
           return protect("Sample");
+        }
+        if (/^[A-Z]{2}$/.test(word) && !SAFE_TWO_LETTER_CAPS.has(word)) {
+          stats.unknownReplacements++;
+          return HPH.shapeOf(word);
         }
         if (uiWords.has(lw)) {
           if (trackAudit) keptWords.add(lw);

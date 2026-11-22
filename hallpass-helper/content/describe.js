@@ -201,10 +201,21 @@
     let els = candidates(desc, nameTest(desc.name, params), exactTag);
     const loose = !els.length && looseTest(desc.name);
     if (loose) els = candidates(desc, loose, exactTag);
+    // When `requireContext` is set (e.g. "Pass Details" Close), never match the same button inside a different dialog.
+    if (desc.requireContext && desc.context && !desc.context.includes("{")) {
+      const want = HPH.normalize(desc.context);
+      els = els.filter((el) => HPH.normalize(HPH.contextOf(el)) === want);
+    }
     // "near" (or a context that mentions the student) keeps only controls that sit in the student's own
     // row, card or pass box, wherever that is in the list.
     if (params.student && (desc.near === "{student}" || desc.context?.includes("{student}"))) {
       els = els.filter((el) => HPH.nameMatches(HPH.contextOf(el), params.student) || HPH.nearStudent(el, params.student));
+    }
+    // When a modal dialog is open and the same control appears both inside it and behind it (e.g. End Pass
+    // on both Pass Details and the active pass card behind the backdrop), prefer the foreground dialog.
+    if (els.length > 1) {
+      const inDialog = els.filter((el) => el.closest('[role=dialog], [role=alertdialog], [aria-modal=true], dialog[open]'));
+      if (inDialog.length > 0 && inDialog.length < els.length) els = inDialog;
     }
     if (!els.length) return [];
     const scored = els.map((el) => ({ el, s: score(el, desc) }));

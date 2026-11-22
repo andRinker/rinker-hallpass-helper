@@ -11,11 +11,16 @@
     Array.isArray(cond) ? cond.some((d) => seenNow(d, params)) : HPH.findTargets(cond, params, { exactTag: true }).length > 0;
   const allSeen = (conds, params) => !!conds?.length && conds.every((c) => seenNow(c, params));
 
+  const isTypeable = (el) => el.matches("input, textarea") || el.isContentEditable;
+
   function findStepNow(step, params) {
     let els = HPH.findTargets(step.target, params);
-    if (!els.length && step.action === "type") {
-      const alt = { combobox: "textbox", textbox: "combobox" }[step.target.role];
-      if (alt) els = HPH.findTargets({ ...step.target, role: alt }, params);
+    if (step.action === "type") {
+      els = els.filter(isTypeable);
+      if (!els.length) {
+        const alt = { combobox: "textbox", textbox: "combobox" }[step.target.role];
+        if (alt) els = HPH.findTargets({ ...step.target, role: alt }, params).filter(isTypeable);
+      }
     }
     return els;
   }

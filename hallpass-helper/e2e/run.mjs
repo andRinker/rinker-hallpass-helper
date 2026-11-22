@@ -680,6 +680,87 @@ try {
   );
   await fp.close();
 
+  // Regression tests for real campus.goguardian.com screens discovered in live Flight Recorder captures:
+  // 1) Open Request Pass dialog: Pass Details peek Close does NOT match Request Pass's Close, and type step does NOT match button[role=combobox].
+  // 2) Long 15-option listbox collapses to 5 sample options + omitted comment in snapshots.
+  // 3) Active pass card behind an open Pass Details dialog: End Pass narrows to foreground Pass Details (1 match, no ambiguity).
+  const realDomEdgeHtml = `<!doctype html><html><body>
+    <h3>Active passes</h3>
+    <div class="grid grid-cols-1 gap-4">
+      <div class="relative w-full overflow-visible">
+        <button type="button" class="inline-flex items-center justify-center whitespace-nowrap">Student Alpha · 6th Grade Bathroom · Active (05:00)</button>
+        <button type="button" class="inline-flex items-center justify-center whitespace-nowrap">End Pass</button>
+      </div>
+    </div>
+    <div role="dialog" aria-modal="true" aria-labelledby="req-title">
+      <h2 id="req-title">Request Pass</h2>
+      <button type="button" class="inline-flex items-center justify-center whitespace-nowrap"><span class="sr-only">Close</span></button>
+      <button type="button" role="combobox" class="inline-flex items-center whitespace-nowrap rounded-md">Select student</button>
+      <div role="listbox">
+        ${Array.from({ length: 15 }, (_, i) => `<div role="option" class="relative flex cursor-default select-none">Option ${i + 1}</div>`).join("")}
+      </div>
+    </div>
+    <div role="dialog" aria-modal="true" aria-labelledby="pd-title">
+      <h2 id="pd-title">Pass Details</h2>
+      <div>Student Alpha · 6th Grade Bathroom · Active</div>
+      <button type="submit" class="inline-flex items-center justify-center whitespace-nowrap">End Pass</button>
+      <button type="button" class="inline-flex items-center justify-center whitespace-nowrap"><span class="sr-only">Close</span></button>
+    </div>
+  </body></html>`;
+  await ctx.route("https://campus.goguardian.com/fixture-edge", (route) =>
+    route.fulfill({ contentType: "text/html; charset=utf-8", body: realDomEdgeHtml }),
+  );
+  const ep = await ctx.newPage();
+  watch(ep, "real-campus-edge");
+  await ep.goto("https://campus.goguardian.com/fixture-edge");
+  await until(async () => {
+    const res = await sw.evaluate(async () => {
+      const [t] = await chrome.tabs.query({ url: "https://campus.goguardian.com/fixture-edge" });
+      return t ? chrome.tabs.sendMessage(t.id, { type: "ping" }).catch(() => null) : null;
+    });
+    return res?.ok;
+  }, "real campus edge content script ready");
+  // First check snapshot option collapsing (15 options -> 5 kept + 10 omitted).
+  const edgeSnap = await sw.evaluate(async () => {
+    const [t] = await chrome.tabs.query({ url: "https://campus.goguardian.com/fixture-edge" });
+    return chrome.tabs.sendMessage(t.id, { type: "snapshot", isPopup: false });
+  });
+  check(
+    edgeSnap?.ok &&
+      edgeSnap.audit?.stats?.optionsCollapsed === 10 &&
+      edgeSnap.html.includes("<!-- 10 more options omitted -->"),
+    "snapshot slim-down: collapses long dropdown lists to 5 sample options + omitted count",
+    JSON.stringify(edgeSnap?.audit?.stats),
+  );
+  // Check End Pass with both active card + Pass Details open (probe student = Student Alpha via empty outPasses/queue/roster? Set outPasses temporarily).
+  await sw.evaluate(() => chrome.storage.local.set({ outPasses: [{ id: "edge-1", label: "Student Alpha", student: { first: "Student", last: "Alpha" }, destination: "6th Grade Bathroom", startedAt: Date.now() }] }));
+  const edgeDiag1 = await sw.evaluate(async () => {
+    const [t] = await chrome.tabs.query({ url: "https://campus.goguardian.com/fixture-edge" });
+    return chrome.tabs.sendMessage(t.id, { type: "diagnose", isPopup: false });
+  });
+  check(
+    edgeDiag1?.ok &&
+      /\[end via hallpass\][\s\S]*Way 1 of 2[\s\S]*1\. \[final\] Click "End Pass": READY \(1 match\)/.test(edgeDiag1.report) &&
+      /Way 2 of 2[\s\S]*2\. \[fixed\] Click "End Pass" \(optional\): READY \(1 match\)/.test(edgeDiag1.report) &&
+      /4\. \[student\] Type "\{student\}" in "Select student": not on screen \(0\)/.test(edgeDiag1.report),
+    "real-DOM bug fixes: End Pass resolves cleanly to foreground Pass Details (no ambiguity) and type step ignores button[role=combobox]",
+    edgeDiag1?.report,
+  );
+  // Remove Pass Details dialog and confirm makeHallpass Step 1 (Close peek) does NOT match Request Pass's Close button!
+  await ep.evaluate(() => document.querySelector('[aria-labelledby="pd-title"]').remove());
+  const edgeDiag2 = await sw.evaluate(async () => {
+    const [t] = await chrome.tabs.query({ url: "https://campus.goguardian.com/fixture-edge" });
+    return chrome.tabs.sendMessage(t.id, { type: "diagnose", isPopup: false });
+  });
+  check(
+    edgeDiag2?.ok &&
+      /\[make via hallpass\][\s\S]*1\. \[fixed\] Click "Close" \(peek\): not on screen \(0\)/.test(edgeDiag2.report),
+    "real-DOM bug fixes: Pass Details peek Close never closes an open Request Pass dialog",
+    edgeDiag2?.report,
+  );
+  await sw.evaluate(() => chrome.storage.local.set({ outPasses: [] }));
+  await ep.close();
+
   await setMacros(fixture);
   await bp.close();
 

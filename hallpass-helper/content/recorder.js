@@ -97,7 +97,10 @@
     if (!recording) return;
     const meaningful = mutations.some((m) => {
       const target = m.target instanceof Element ? m.target : m.target?.parentElement;
-      return target && !target.closest("[data-hph-ui]");
+      if (!target || target.closest("[data-hph-ui]")) return false;
+      // Ignore hover/keyboard highlight churn on individual dropdown options.
+      if (m.type === "attributes" && target.matches("[role=option], [role=menuitem]")) return false;
+      return true;
     });
     if (meaningful) scheduleCapture();
   }

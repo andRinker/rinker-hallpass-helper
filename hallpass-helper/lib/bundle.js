@@ -1,7 +1,7 @@
 // Pure logic for the multi-frame Scrubbed Flight Recorder bundle.
 // Manages session frames, consecutive deduplication, caps, unified privacy audits, and JSON export.
 
-export const MAX_BUNDLE_FRAMES = 25;
+export const MAX_BUNDLE_FRAMES = 60;
 
 export const emptyRecording = () => ({
   active: false,

@@ -43,15 +43,15 @@ const requestPass = [
   step("type", "destination", DESTINATION_BOX, "{destination}", { done: [DESTINATION_PICKED] }),
   step("click", "destination", { classes: OPTION, name: "{destination}", role: "option", tag: "div" }, undefined, { done: [DESTINATION_PICKED] }),
   step("click", "final", SUBMIT),
-  step("click", "fixed", { classes: BUTTON, context: "Pass Details", name: "Close", role: "button", tag: "button" }, undefined, { optional: true }),
+  step("click", "fixed", { classes: BUTTON, context: "Pass Details", requireContext: true, name: "Close", role: "button", tag: "button" }, undefined, { optional: true }),
 ];
 
 const hallpassSite = (kind, steps, alternates) => ({ kind, host: HALLPASS_HOST, popup: false, steps, ...(alternates ? { alternates } : {}) });
 const popup = (steps, opener) => ({ kind: "create", host: HALLPASS_HOST, popup: true, steps, opener: { host: HOME_HOST, steps: [opener] } });
 
 const makeHallpass = hallpassSite("hallpass", [
-  // A Pass Details panel left open from the last pass is closed first, if it's there.
-  step("click", "fixed", { classes: BUTTON, context: "Pass Details", name: "Close", role: "button", tag: "button" }, undefined, { peek: true }),
+  // A Pass Details panel left open from the last pass is closed first, if it's there (never Request Pass).
+  step("click", "fixed", { classes: BUTTON, context: "Pass Details", requireContext: true, name: "Close", role: "button", tag: "button" }, undefined, { peek: true }),
   step("click", "fixed", { classes: BUTTON, name: "New Pass", role: "button", tag: "button" }, undefined, { done: [FORM_OPEN] }),
   ...requestPass,
 ]);
@@ -68,21 +68,21 @@ const makeWindow = popup(
 );
 
 // Ending a pass on the HallPass site has two ways, and the helper looks at the screen to pick one:
-//  - the student's pass box is already open, so its End Pass button is right there: click it;
-//  - the box is closed: one click on the student's button, then End Pass (and Close) when they show up.
-// (Clicking the student's button while the box is open would close it again, which is why it's looked at first.)
+//  - the student's pass box or card already shows an End Pass button right there: click it;
+//  - otherwise: click the student's button, then End Pass (and Close) inside Pass Details when they show up.
 const END_PASS = { classes: BUTTON, name: "End Pass", role: "button", tag: "button" };
 const CLOSE = { classes: BUTTON, name: "Close", role: "button", tag: "button" };
+const PASS_DETAILS_CLOSE = { ...CLOSE, context: "Pass Details", requireContext: true };
 const optional = (st) => ({ ...st, optional: true });
 const endHallpass = hallpassSite(
   "hallpass",
-  [step("click", "final", { ...END_PASS, near: "{student}" }), optional(step("click", "fixed", CLOSE))],
+  [step("click", "final", { ...END_PASS, near: "{student}" }), optional(step("click", "fixed", PASS_DETAILS_CLOSE))],
   [
     {
       steps: [
         step("click", "student", { classes: BUTTON, name: "{student}", role: "button", tag: "button" }),
-        optional(step("click", "fixed", END_PASS, undefined, { commit: true })),
-        optional(step("click", "fixed", CLOSE)),
+        optional(step("click", "fixed", { ...END_PASS, context: "Pass Details", requireContext: true, near: "{student}" }, undefined, { commit: true })),
+        optional(step("click", "fixed", PASS_DETAILS_CLOSE)),
       ],
     },
   ],

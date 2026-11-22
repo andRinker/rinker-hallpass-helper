@@ -43,14 +43,17 @@
     }
   }
 
-  // A search box might be announced as a combobox or a plain text box, so a typing step tries both.
+  const isTypeable = (el) => el.matches("input, textarea") || el.isContentEditable;
+
+  // A search box might be announced as a combobox or a plain text box, so a typing step tries both,
+  // while never matching a non-editable button[role=combobox] trigger.
   async function waitForStep(step, params, timeout) {
     if (step.action !== "type") return waitFor(step.target, params, timeout);
     const until = Date.now() + timeout;
     const alt = { combobox: "textbox", textbox: "combobox" }[step.target.role];
     for (;;) {
-      let els = HPH.findTargets(step.target, params);
-      if (!els.length && alt) els = HPH.findTargets({ ...step.target, role: alt }, params);
+      let els = HPH.findTargets(step.target, params).filter(isTypeable);
+      if (!els.length && alt) els = HPH.findTargets({ ...step.target, role: alt }, params).filter(isTypeable);
       if (els.length || Date.now() > until) return els;
       await sleep(150);
     }

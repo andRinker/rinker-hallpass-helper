@@ -20,6 +20,7 @@
   const TESTID_ATTRS = ["data-testid", "data-test", "data-cy"];
   const REF_ATTRS = ["for", "aria-labelledby", "aria-describedby", "aria-controls", "aria-owns", "aria-activedescendant"];
   const MAX_ELEMENTS = 8000;
+  const MAX_LIST_OPTIONS = 5;
 
   const escText = (s) =>
     String(s ?? "")
@@ -48,19 +49,25 @@
     .hph-scrubbed-img { display: inline-block; width: 20px; height: 20px; border-radius: 50%; background: #ddd; vertical-align: middle; }
   `.trim();
 
-  // Lightweight name-free fingerprint of visible headings, dialogs, alerts, and key controls so the
-  // multi-frame Flight Recorder only captures when the visible GoGuardian screen actually changes.
+  // Lightweight name-free fingerprint of visible headings, dialogs, alerts, open dropdowns, and key controls
+  // so the multi-frame Flight Recorder only captures when the visible GoGuardian screen meaningfully changes.
   HPH.screenFingerprint = () => {
     const parts = [HPH.pathShape(location.pathname)];
-    const sel = '[role=dialog], [role=alertdialog], [aria-modal=true], dialog[open], [role=alert], [aria-live], h1, h2, h3, [role=heading], [role=option], [role=radio][aria-checked=true], button';
+    const sel = '[role=dialog], [role=alertdialog], [aria-modal=true], dialog[open], [role=alert], [role=status], [aria-live], [role=listbox], [role=menu], h1, h2, h3, [role=heading], [role=radio][aria-checked=true], button';
     const seen = [];
     for (const el of document.querySelectorAll(sel)) {
       if (el.closest("[data-hph-ui]") || !HPH.visible(el)) continue;
       const tag = el.tagName.toLowerCase();
       const role = HPH.roleOf(el);
-      const name = HPH.accessibleName(el).slice(0, 40);
-      const safe = HPH.redact(name);
-      seen.push(`${tag}:${role}:${safe}`);
+      if (role === "listbox" || role === "menu" || el.matches("[role=listbox], [role=menu]")) {
+        const opts = [...el.querySelectorAll("[role=option], [role=menuitem]")].filter((o) => HPH.visible(o));
+        const bucket = opts.length > MAX_LIST_OPTIONS ? `${MAX_LIST_OPTIONS + 1}+` : String(opts.length);
+        seen.push(`${tag}:list:${bucket}`);
+      } else {
+        const name = HPH.accessibleName(el).slice(0, 40);
+        const safe = HPH.redact(name);
+        seen.push(`${tag}:${role}:${safe}`);
+      }
       if (seen.length >= 80) break;
     }
     parts.push(String(seen.length), seen.join("|"));
@@ -72,6 +79,7 @@
     const stats = {
       elementsKept: 0,
       hiddenSkipped: 0,
+      optionsCollapsed: 0,
       scriptsStripped: 0,
       imagesStripped: 0,
       attrsStripped: 0,
@@ -108,7 +116,7 @@
       return el.scrollHeight > el.clientHeight + 40 && /(auto|scroll)/.test(getComputedStyle(el).overflowY);
     }
 
-    function serializeNode(node, insideSelect = false) {
+    function serializeNode(node, insideSelect = false, listBudget = null) {
       if (node.nodeType === Node.TEXT_NODE) {
         const raw = node.textContent ?? "";
         if (!raw.trim()) return raw.includes("\n") ? "\n" : " ";
@@ -129,6 +137,22 @@
       if (!allowInvisible && !HPH.visible(el)) {
         stats.hiddenSkipped++;
         return "";
+      }
+
+      // Collapse huge student/room dropdown lists after the first few sample options so multi-frame
+      // Flight Recorder bundles stay small while preserving full DOM structure and any selected option.
+      const explicitRole = el.getAttribute("role")?.trim().split(/\s+/)[0];
+      if (listBudget && (explicitRole === "option" || explicitRole === "menuitem")) {
+        const selected =
+          el.getAttribute("aria-selected") === "true" ||
+          el.getAttribute("data-selected") === "true" ||
+          el.getAttribute("data-state") === "checked";
+        if (!selected && listBudget.kept >= listBudget.limit) {
+          listBudget.skipped++;
+          stats.optionsCollapsed++;
+          return "";
+        }
+        listBudget.kept++;
       }
 
       if (stats.elementsKept >= MAX_ELEMENTS) {
@@ -249,8 +273,13 @@
       }
 
       const nextInsideSelect = insideSelect || tag === "select";
+      const startsList = explicitRole === "listbox" || explicitRole === "menu";
+      const nextBudget = startsList ? { kept: 0, skipped: 0, limit: MAX_LIST_OPTIONS } : listBudget;
       let inner = "";
-      for (const child of el.childNodes) inner += serializeNode(child, nextInsideSelect);
+      for (const child of el.childNodes) inner += serializeNode(child, nextInsideSelect, nextBudget);
+      if (startsList && nextBudget.skipped > 0) {
+        inner += `<!-- ${nextBudget.skipped} more options omitted -->`;
+      }
       return `${openTag}${inner}</${tag}>`;
     }
 
@@ -258,7 +287,7 @@
     stats.scriptsStripped += document.head.querySelectorAll("script").length;
 
     let bodyInner = "";
-    for (const child of document.body.childNodes) bodyInner += serializeNode(child, false);
+    for (const child of document.body.childNodes) bodyInner += serializeNode(child, false, null);
 
     const safeHost = /\.goguardian\.com$/i.test(location.host) ? location.host : "goguardian.invalid";
     const safePath = scrubber.scrubText(HPH.pathShape(location.pathname), { trackAudit: false });

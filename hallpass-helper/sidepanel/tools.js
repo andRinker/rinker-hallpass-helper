@@ -103,8 +103,9 @@ function renderRecorder() {
       ? ` (${summary.syntheticNames.slice(0, 4).join(", ")}${summary.syntheticNames.length > 4 ? ", …" : ""})`
       : "";
     const dropNote = recordDropped ? ` · ${recordDropped} extra screen(s) skipped after cap` : "";
+    const kb = Math.max(1, Math.round(new Blob([currentBundleJson()]).size / 1024));
     $("bundleStats").textContent =
-      `Stripped ${s.scriptsStripped} script(s), ${s.imagesStripped} image(s), ${s.hiddenSkipped} hidden node(s) · Scrubbed ${replaced} non-UI text item(s)${synNote}${dropNote}.`;
+      `~${kb} KB · Stripped ${s.scriptsStripped} script(s), ${s.imagesStripped} image(s), ${s.hiddenSkipped} hidden node(s) · Scrubbed ${replaced} non-UI text item(s)${synNote}${dropNote}.`;
 
     $("bundleWordsSummary").textContent = `Inspect every kept word across all screens (${summary.keptWords.length} unique UI words)`;
     renderWordPills($("bundleWords"), summary.keptWords);
@@ -204,7 +205,7 @@ async function stopRecording(keep) {
 function currentBundleJson() {
   const s = getSettings();
   const version = chrome.runtime.getManifest().version_name ?? chrome.runtime.getManifest().version;
-  return JSON.stringify(exportBundle({ frames: recordFrames, helperVersion: version, lane: chosenLane(s), kind: "session" }), null, 2);
+  return JSON.stringify(exportBundle({ frames: recordFrames, helperVersion: version, lane: chosenLane(s), kind: "session" }));
 }
 
 // --- Automatic Failure Capture card ---

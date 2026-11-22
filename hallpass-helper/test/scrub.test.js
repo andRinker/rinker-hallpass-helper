@@ -125,3 +125,11 @@ test("createScrubSession keeps synthetic names consistent across multiple frames
   assert.ok(s2.audit().syntheticNames.includes("Student Alpha"));
   assert.ok(s2.audit().syntheticNames.includes("Student Bravo"));
 });
+
+test("createScrubber scrubs 2-letter all-caps avatar initials while preserving OK, AM/PM, and lowercase UI words", () => {
+  const scrubber = HPH.createScrubber({ roster, forbidden });
+  const out = scrubber.scrubText("AS Marcus Vance · IN 12:30 PM · OK as requested");
+  assert.ok(!/\bAS\b|\bIN\b/.test(out), out);
+  assert.match(out, /Demo Alpha · XX 12:00 PM · OK as requested/);
+});
+
