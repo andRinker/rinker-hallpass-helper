@@ -25,7 +25,9 @@
     nav outer overlay picker popover primary result results root sec seconds secondary selected
     sidebar success text timer title toggle tooltip total value warning week wrapper yes
     also ascending auto can currently descending either getting history learn managing notifications range
-    recent recurring release rooms there understanding upcoming user users where`.split(/\s+/),
+    recent recurring release rooms there understanding upcoming user users where
+    alert allowed already blocked blocker blockers cannot checkout conflict cooldown daily exceeded
+    has have join maximum notice past reached restricted self timestamp waitline waitlist waitlisted weekly`.split(/\s+/),
   );
   HPH.UI_WORDS = UI_WORDS;
 
