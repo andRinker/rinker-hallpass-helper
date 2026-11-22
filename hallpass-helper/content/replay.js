@@ -73,6 +73,7 @@
     el.dispatchEvent(new MouseEvent("mouseup", at));
     el.dispatchEvent(new MouseEvent("click", at));
   }
+  HPH.realClick = realClick;
 
   // Uses the built-in value setter so React-style inputs notice the change.
   function setValue(el, value) {
@@ -207,7 +208,76 @@
 
   // --- the replay itself ---
 
-  // Runs the steps of one route. Resolves { ok: true } or { ok: false, reason, step, label, committed }.
+  // After Submit on a make-pass flow, waits briefly for Pass Details (or the My passes card) so the helper can tell
+  // whether the pass went straight to Active, landed in GoGuardian's automatic waitline (destination at capacity),
+  // or hit a hard blocker requiring teacher action (student daily pass limit).
+  async function inspectPostSubmit(params, ctx, submitDialog) {
+    if (typeof HPH.readPassDetails !== "function") return { passStatus: "active" };
+    const start = Date.now();
+    const until = start + 2600;
+    let detailsSeenAt = 0;
+    let formClosedAt = 0;
+
+    for (;;) {
+      const details = HPH.readPassDetails();
+      if (details?.open) {
+        if (!detailsSeenAt) detailsSeenAt = Date.now();
+        if (details.hasBlockers) {
+          if (details.hardBlockers.length > 0) {
+            let rejected = false;
+            if (details._els?.rejectBtn) {
+              realClick(details._els.rejectBtn);
+              rejected = true;
+              await waitUntil(() => !HPH.readPassDetails()?.open, 1400);
+            }
+            const after = HPH.readPassDetails();
+            if (after?.open && after._els?.closeBtn) {
+              realClick(after._els.closeBtn);
+              await sleep(200);
+            }
+            ctx.notes.push(`Blocked (${details.hardBlockers.join("; ")})${rejected ? "; rejected waiting request" : ""}.`);
+            return {
+              blockedHard: true,
+              blockers: details.hardBlockers,
+              autoBlockers: details.autoBlockers,
+              rejected,
+            };
+          }
+          // Only auto-clearing blockers (e.g. "Destination room is at capacity"): leave in GoGuardian's waitline!
+          ctx.notes.push(
+            `Room full (${details.autoBlockers.join("; ")}${details.etaText ? `, ${details.etaText}` : ""}); left in HallPass waitline.`,
+          );
+          return {
+            passStatus: "waiting",
+            blockers: details.autoBlockers,
+            etaText: details.etaText ?? "",
+          };
+        }
+        if (details.status === "active" || Date.now() - detailsSeenAt >= 450) {
+          return { passStatus: "active" };
+        }
+      } else {
+        const formStillOpen = !!(submitDialog && submitDialog.isConnected && HPH.visible(submitDialog));
+        if (!formStillOpen) {
+          if (!formClosedAt) formClosedAt = Date.now();
+          const found = HPH.findStudentPass?.(params.student);
+          if (found?.supported && found.status === "active") return { passStatus: "active" };
+          if (found?.supported && found.status === "waiting" && Date.now() - formClosedAt >= 1200) {
+            return { passStatus: "waiting", blockers: ["Waiting for approval"], etaText: "" };
+          }
+          // Once the submit dialog itself has closed and Pass Details did not open, finish promptly.
+          if (Date.now() - formClosedAt >= 120 && found?.status !== "waiting") {
+            return { passStatus: "active" };
+          }
+        }
+      }
+      if (Date.now() >= until) return { passStatus: "active" };
+      await sleep(80);
+    }
+  }
+
+  // Runs the steps of one route. Resolves { ok: true, passStatus?, blockers?, etaText? } or
+  // { ok: false, reason, step, label, committed, blockers?, autoBlockers?, rejected? }.
   // `ctx.committed` turns true once the final button (or the step that ends the pass) is clicked. From then
   // on the helper only tidies up, and a missing Close button is no problem. It never repeats the final click.
   async function runSteps(steps, params, ctx) {
@@ -252,6 +322,9 @@
         return fail("ambiguous", i);
       }
       const el = HPH.pick(els, step.target);
+      const submitDialog = isCommit(step)
+        ? el.closest('[role=dialog], [role=alertdialog], [aria-modal=true], dialog[open]')
+        : null;
 
       if (step.action === "click") realClick(el);
       else if (step.action === "type") {
@@ -260,7 +333,23 @@
       } else if (step.action === "select") {
         if (!selectOption(el, valueFor(step, params))) return fail("stuck", i);
       } else if (step.action === "key") pressKey(el, step.key);
-      if (isCommit(step)) ctx.committed = true;
+      if (isCommit(step)) {
+        ctx.committed = true;
+        if (ctx.inspectOutcome) {
+          const outcome = await inspectPostSubmit(params, ctx, submitDialog);
+          if (outcome.blockedHard) {
+            return {
+              ok: false,
+              reason: "blocked-hard",
+              blockers: outcome.blockers,
+              autoBlockers: outcome.autoBlockers,
+              rejected: outcome.rejected,
+              committed: false,
+            };
+          }
+          ctx.outcome = outcome;
+        }
+      }
       await sleep(150);
 
       // Did the click do what it did when the helper learned it? If not, it may not have landed: once more.
@@ -276,7 +365,7 @@
         }
       }
     }
-    return { ok: true };
+    return { ok: true, ...(ctx.outcome ?? {}) };
   }
 
   const required = (route) => route.filter((s) => !s.optional && !s.peek);
@@ -302,10 +391,10 @@
   }
 
   // Runs every step of a macro, including the final button. A macro is a main route plus optional
-  // `alternates`, other routes to the same goal. Resolves { ok: true, route, routes, notes }, or
-  // { ok: false, reason: "stuck" | "ambiguous" | "busy", step, label, notes } without clicking anything further.
+  // `alternates`, other routes to the same goal. Resolves { ok: true, route, routes, notes, passStatus?, ... }, or
+  // { ok: false, reason: "stuck" | "ambiguous" | "busy" | "blocked-hard", step?, label?, notes, ... }.
   // A route that gets stuck before its final button is tried again after clearing pop-ups, then the next one is.
-  HPH.runMacro = async (macro, params) => {
+  HPH.runMacro = async (macro, params, { inspectOutcome = false } = {}) => {
     if (HPH.busy) return { ok: false, reason: "busy" };
     HPH.busy = true;
     HPH.clearHighlights();
@@ -316,14 +405,15 @@
       let last = null;
       for (const index of await routeOrder(routes, params)) {
         for (let attempt = 0; attempt < 2; attempt++) {
-          const ctx = { committed: false, notes, popup };
+          const ctx = { committed: false, notes, popup, inspectOutcome, outcome: null };
           const result = await runSteps(routes[index], params, ctx);
           if (result.ok) {
             if (routes.length > 1) notes.push(`Used way ${index + 1} of ${routes.length}.`);
-            return { ok: true, route: index + 1, routes: routes.length, notes };
+            return { ok: true, route: index + 1, routes: routes.length, notes, ...(ctx.outcome ?? {}) };
           }
+          if (result.reason === "blocked-hard") return { ...result, notes };
           // Past the final button the pass is made (or ended); only tidying up was left.
-          if (result.committed) return { ok: true, route: index + 1, routes: routes.length, notes };
+          if (result.committed) return { ok: true, route: index + 1, routes: routes.length, notes, ...(ctx.outcome ?? {}) };
           if (result.reason === "ambiguous") return { ...result, notes };
           last = result;
           // Not made yet: clear whatever is open and try again from the top, then move to the next way.

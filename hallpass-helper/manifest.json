@@ -46,6 +46,7 @@
         "content/core.js",
         "content/scrub.js",
         "content/describe.js",
+        "content/state.js",
         "content/watch.js",
         "content/replay.js",
         "content/outline.js",

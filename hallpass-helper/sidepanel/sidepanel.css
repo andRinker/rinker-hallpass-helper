@@ -592,4 +592,71 @@ header h1 {
   margin-bottom: 10px;
 }
 
+.out-row.waiting {
+  border-color: #d97706;
+  background: color-mix(in srgb, #f59e0b 8%, var(--card));
+}
+
+.out-row.waiting .timer,
+.waiting-tag {
+  color: #b45309;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.skipped-box {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border: 1px solid #d97706;
+  border-radius: 8px;
+  background: color-mix(in srgb, #f59e0b 8%, var(--card));
+}
+
+.skipped-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #b45309;
+}
+
+.skipped-list {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+}
+
+.skipped-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+}
+
+.skipped-row .who {
+  display: grid;
+  min-width: 0;
+}
+
+.skipped-reason {
+  font-size: 12px;
+  color: #b45309;
+}
+
+.skipped-row button {
+  padding: 3px 8px;
+  font-size: 12px;
+}
+
+.skipped-row .remove {
+  font-size: 16px;
+  color: var(--muted);
+  padding: 0 3px;
+}
+
+
 

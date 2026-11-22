@@ -5,7 +5,7 @@ import { loadSettings, saveSettings } from "./lib/storage.js";
 import { capitalize, goGuardianTab, allGoGuardianTabs, hostOf, pageKind, popupWindowIds, siteName } from "./lib/tabs.js";
 import { installBuiltin } from "./lib/builtin.js";
 import { END_ORDER, METHODS, SEND_ORDER, chosenLane, endMethods, kindOfMacro, makeMethods, method, methodPlace, openerPlace } from "./lib/methods.js";
-import { dueToEnd, endsAt, nextToSend } from "./lib/queue.js";
+import { dueToEnd, endsAt, isWaitingPass, nextToSend, reconcilePasses } from "./lib/queue.js";
 import { applyEvent, emptyWatch } from "./lib/watch.js";
 import { addFrame, emptyRecording } from "./lib/bundle.js";
 
@@ -35,6 +35,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.type === "end-now") {
     serial(() => endPass(msg.id, { manual: true })).then(sendResponse, (err) => sendResponse({ ok: false, reason: String(err) }));
     return true;
+  }
+  if (msg?.type === "hallpass-state-changed") {
+    sync();
+    sendResponse({ ok: true });
+    return false;
   }
   if (msg?.type?.startsWith("watch-")) {
     watchMessage(msg, sender).then(sendResponse, (err) => sendResponse({ ok: false, reason: String(err) }));
@@ -201,10 +206,37 @@ function sync() {
   });
 }
 
+// Silently checks campus.goguardian.com (never steals tab focus) to promote waiting passes to Active
+// and clear passes that were ended or rejected directly in HallPass.
+async function reconcileHallPass(s) {
+  if (!s.outPasses?.length) return s;
+  const tab = await goGuardianTab({ kind: "hallpass" });
+  if (!tab) return s;
+  const screen = await chrome.tabs
+    .sendMessage(tab.id, {
+      type: "read-passes",
+      passes: s.outPasses.map(({ id, student }) => ({ id, student })),
+    })
+    .catch(() => null);
+  if (!screen?.ok || !screen.supported) return s;
+  const res = reconcilePasses(s.outPasses, screen, { now: Date.now(), lane: chosenLane(s) });
+  if (!res.changed) return s;
+  await saveSettings({ outPasses: res.outPasses });
+  for (const p of res.promoted) {
+    notify("Pass active", `${p.label}'s pass is now active. ${s.autoEndMinutes}-minute timer started.`);
+  }
+  for (const p of res.cleared) {
+    const what = isWaitingPass(p) ? "waiting pass was cleared" : "pass ended";
+    notify("Pass cleared", `${p.label}'s ${what} in HallPass.`);
+  }
+  return loadSettings();
+}
+
 async function look() {
   // While the teacher is showing the helper around, nothing is sent or ended.
   if ((await getWatch()).active) return;
   let s = await loadSettings();
+  s = await reconcileHallPass(s);
   await armEndAlarms(s);
   // End first, so a pass that's up frees its spot before the next student goes.
   for (const pass of dueToEnd(s)) await endPass(pass.id);
@@ -216,10 +248,12 @@ async function look() {
   else if (!next && !s.queuePaused && s.queueProblem) await saveSettings({ queueProblem: "" });
 }
 
-// One alarm per open pass, at the moment its time is up.
+// One alarm per active open pass, at the moment its time is up. Waiting passes hold their timer until Active.
 async function armEndAlarms({ outPasses, autoEndMinutes }) {
   const wanted = new Map(
-    outPasses.filter((p) => !p.endFailed).map((p) => [`end:${p.id}`, endsAt(p, autoEndMinutes)]),
+    outPasses
+      .filter((p) => !p.endFailed && !isWaitingPass(p))
+      .map((p) => [`end:${p.id}`, endsAt(p, autoEndMinutes)]),
   );
   const existing = (await chrome.alarms.getAll()).filter((a) => a.name.startsWith("end:"));
   const current = new Set();
@@ -366,7 +400,7 @@ async function captureFailure(tab, { goal, lane, result }) {
 // The other ways, for when "try the other way if this one gets stuck" is switched on.
 const lanesToTry = (settings, lane) => (settings.fallback ? [lane, ...METHODS.map((m) => m.kind).filter((k) => k !== lane)] : [lane]);
 
-// One go at sending `entry` through one way. Resolves { status: "sent" | "later" | "unavailable" | "failed", why }.
+// One go at sending `entry` through one way. Resolves { status: "sent" | "blocked-hard" | "later" | "unavailable" | "failed", ... }.
 async function sendVia(entry, settings, lane) {
   const methods = pick(makeMethods(settings.macros), lane);
   if (!methods[lane]) return { status: "unavailable", why: `The helper hasn't been taught ${method(lane).name} yet. Switch to the other way.` };
@@ -390,13 +424,29 @@ async function sendVia(entry, settings, lane) {
   if (!result && kind === "create" && (await readyTab({ kind: "create" })).state === "closed") result = { ok: true };
   if (TRY_LATER.has(result?.reason)) return { status: "later" };
   await saveRun("make", kind, result);
+  if (result?.reason === "blocked-hard") {
+    return {
+      status: "blocked-hard",
+      blockers: result.blockers?.length ? result.blockers : ["Blocked by HallPass"],
+      autoBlockers: result.autoBlockers ?? [],
+      rejected: !!result.rejected,
+    };
+  }
   if (!result?.ok) {
     await captureFailure(tab, { goal: "make", lane: kind, result });
     // Only a clean "stuck" is safe to try another way after. No reply, or two matching students, is not.
     return { status: "failed", why: stuckText(result, name), retryable: result?.reason === "stuck" };
   }
-  return { status: "sent" };
+  return {
+    status: "sent",
+    lane: kind,
+    passStatus: result.passStatus === "waiting" ? "waiting" : "active",
+    blockers: result.blockers ?? [],
+    etaText: result.etaText ?? "",
+  };
 }
+
+const sameStudentKey = (s) => `${s?.first ?? ""} ${s?.last ?? ""}`.trim().toLowerCase();
 
 async function send(entry) {
   const settings = await loadSettings();
@@ -407,16 +457,67 @@ async function send(entry) {
   for (const kind of lanesToTry(settings, lane)) {
     const out = await sendVia(entry, settings, kind);
     if (out.status === "later") return;
+    if (out.status === "blocked-hard") {
+      const s = await loadSettings();
+      const remaining = s.queue.filter((e) => e.id !== entry.id);
+      const key = sameStudentKey(entry.student);
+      const skipped = [
+        {
+          id: entry.id,
+          student: entry.student,
+          label: entry.label,
+          destination: entry.destination,
+          blockers: out.blockers,
+          autoBlockers: out.autoBlockers ?? [],
+          at: Date.now(),
+        },
+        ...(s.skippedPasses ?? []).filter((x) => sameStudentKey(x.student) !== key),
+      ].slice(0, 12);
+      await saveSettings({ queue: remaining, skippedPasses: skipped, queueProblem: "" });
+      const why = out.blockers[0] || "Blocked by HallPass";
+      const nextNote = remaining[0] ? ` Sending ${remaining[0].label} next.` : "";
+      notify("Skipped student", `${entry.label}: ${why}.${nextNote}`);
+      return;
+    }
     if (out.status === "sent") {
       const s = await loadSettings();
+      const now = Date.now();
+      const key = sameStudentKey(entry.student);
+      const waiting = out.passStatus === "waiting";
+      const passRecord = waiting
+        ? {
+            id: entry.id,
+            student: entry.student,
+            label: entry.label,
+            destination: entry.destination,
+            lane: out.lane,
+            status: "waiting",
+            startedAt: null,
+            queuedInHallPassAt: now,
+            blockerLabel: out.blockers?.[0] || "Destination room is at capacity",
+            etaText: out.etaText || "",
+          }
+        : {
+            id: entry.id,
+            student: entry.student,
+            label: entry.label,
+            destination: entry.destination,
+            lane: out.lane,
+            status: "active",
+            startedAt: now,
+          };
       await saveSettings({
         queue: s.queue.filter((e) => e.id !== entry.id),
-        outPasses: [
-          ...s.outPasses,
-          { id: entry.id, student: entry.student, label: entry.label, destination: entry.destination, startedAt: Date.now() },
-        ],
+        skippedPasses: (s.skippedPasses ?? []).filter((x) => sameStudentKey(x.student) !== key),
+        outPasses: [...s.outPasses, passRecord],
         queueProblem: "",
       });
+      if (waiting) {
+        notify(
+          "Waiting for room",
+          `${entry.label} is in HallPass's waitline (${passRecord.blockerLabel}). The ${settings.autoEndMinutes}-minute timer starts when active.`,
+        );
+      }
       return;
     }
     outs.push(out);
@@ -461,18 +562,42 @@ async function endVia(pass, settings, lane) {
   if (TRY_LATER.has(result?.reason)) return { status: "later", result };
   await saveRun("end", kind, result);
   if (!result?.ok) {
+    // If ending got stuck because the teacher already ended the pass directly in HallPass, treat it as ended cleanly.
+    if (kind === "hallpass" && result?.reason === "stuck" && tab?.id) {
+      const check = await chrome.tabs
+        .sendMessage(tab.id, { type: "read-passes", passes: [{ id: pass.id, student: pass.student }] })
+        .catch(() => null);
+      if (check?.ok && check.supported && !check.filtered && check.states?.[pass.id] === "missing") {
+        return { status: "ended" };
+      }
+    }
     await captureFailure(tab, { goal: "end", lane: kind, result });
     return { status: "failed", why: stuckText(result, name), retryable: result?.reason === "stuck", result };
   }
   return { status: "ended" };
 }
 
-// Ends a pass in HallPass. Time's up unless `manual` (the teacher pressed Back).
+// Ends a pass (or cancels a waiting pass) in HallPass. Time's up unless `manual` (the teacher pressed Back/Cancel).
 async function endPass(id, { manual = false } = {}) {
   const settings = await loadSettings();
   const { outPasses, autoEndMinutes } = settings;
   const pass = outPasses.find((p) => p.id === id);
   if (!pass) return { ok: true };
+
+  // Cancelling a pass that is still in HallPass's "Waiting for Approval" queue uses Reject instead of End Pass.
+  if (isWaitingPass(pass)) {
+    const tab = await goGuardianTab({ kind: "hallpass" });
+    if (!tab) return { ok: false, reason: "closed" };
+    const res = await inTab(tab, { type: "cancel-waiting", student: pass.student });
+    if (TRY_LATER.has(res?.reason)) return res;
+    if (res?.ok) {
+      const latest = await loadSettings();
+      await saveSettings({ outPasses: latest.outPasses.filter((p) => p.id !== id) });
+      return { ok: true };
+    }
+    return { ok: false, reason: res?.reason ?? "stuck" };
+  }
+
   const lane = chosenLane(settings);
   const timesUp = `${pass.label}'s ${autoEndMinutes} minutes are up`;
   const outs = [];

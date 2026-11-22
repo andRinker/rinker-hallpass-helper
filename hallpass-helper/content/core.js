@@ -27,7 +27,8 @@
     also ascending auto can currently descending either getting history learn managing notifications range
     recent recurring release rooms there understanding upcoming user users where
     alert allowed already blocked blocker blockers cannot checkout conflict cooldown daily exceeded
-    has have join maximum notice past reached restricted self timestamp waitline waitlist waitlisted weekly`.split(/\s+/),
+    has have join maximum notice past reached restricted self timestamp waitline waitlist waitlisted weekly
+    automatically is month note provide requires resolve shown them these wait`.split(/\s+/),
   );
   HPH.UI_WORDS = UI_WORDS;
 

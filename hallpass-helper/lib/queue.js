@@ -60,9 +60,62 @@ export function nextToSend({ queue = [], outPasses = [], maxOut = 1, queuePaused
   return outPasses.length < Math.max(1, maxOut) ? queue[0] : null;
 }
 
-export const endsAt = (pass, minutes) => pass.startedAt + minutes * 60000;
+export const isWaitingPass = (pass) => pass?.status === "waiting" || !pass?.startedAt;
 
-// Passes whose time is up and haven't already failed to end.
+export const endsAt = (pass, minutes) => (isWaitingPass(pass) ? Infinity : pass.startedAt + minutes * 60000);
+
+// Passes whose time is up and haven't already failed to end. Waiting passes never time out until Active.
 export function dueToEnd({ outPasses = [], autoEndMinutes = 7 }, now = Date.now()) {
-  return outPasses.filter((p) => !p.endFailed && endsAt(p, autoEndMinutes) <= now);
+  return outPasses.filter((p) => !p.endFailed && !isWaitingPass(p) && endsAt(p, autoEndMinutes) <= now);
+}
+
+// Reconciles tracked passes against what is currently visible under "My passes" on campus.goguardian.com:
+//  - Promotes a waiting pass to active (starting its timer now) as soon as HallPass moves it to Active.
+//  - Clears an active or waiting pass that disappeared (e.g. ended or rejected manually in HallPass),
+//    respecting a creation grace period and skipping reconciliation whenever filters/collapse hide cards.
+export function reconcilePasses(
+  outPasses = [],
+  screen = {},
+  { now = Date.now(), graceMs = 12000, lane = "hallpass" } = {},
+) {
+  if (!outPasses.length || !screen?.supported || screen.filtered) {
+    return { outPasses, promoted: [], cleared: [], changed: false };
+  }
+  const states = screen.states ?? {};
+  const next = [];
+  const promoted = [];
+  const cleared = [];
+
+  for (const pass of outPasses) {
+    const seen = states[pass.id];
+    if (isWaitingPass(pass)) {
+      if (seen === "active") {
+        const updated = { ...pass, status: "active", startedAt: now, blockerLabel: "", etaText: "", endFailed: undefined };
+        next.push(updated);
+        promoted.push(updated);
+      } else if (
+        seen === "missing" &&
+        !screen.requestsCollapsed &&
+        now - (pass.queuedInHallPassAt ?? pass.startedAt ?? 0) >= graceMs
+      ) {
+        cleared.push(pass);
+      } else {
+        next.push(pass);
+      }
+    } else {
+      const sameLane = pass.lane === "hallpass" || (!pass.lane && lane === "hallpass");
+      if (sameLane && seen === "missing" && now - pass.startedAt >= graceMs) {
+        cleared.push(pass);
+      } else {
+        next.push(pass);
+      }
+    }
+  }
+
+  return {
+    outPasses: next,
+    promoted,
+    cleared,
+    changed: promoted.length > 0 || cleared.length > 0,
+  };
 }

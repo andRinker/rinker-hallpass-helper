@@ -19,13 +19,13 @@
       HPH.stopWatching();
       return { ok: true };
     },
-    // Makes the pass all the way through the final button.
+    // Makes the pass all the way through the final button, inspecting Pass Details for blockers afterward.
     "make-pass": async ({ student, destination, method }) => {
       if (teaching()) return { ok: false, reason: "teaching" };
       const { create, make } = await getMacros();
       const macro = method ? make?.[method] : create;
       if (!macro) return { ok: false, reason: "not-taught" };
-      return HPH.runMacro(macro, { student, destination });
+      return HPH.runMacro(macro, { student, destination }, { inspectOutcome: true });
     },
     // Clicks the button on the GoGuardian home screen that opens the Create Pass window.
     "run-opener": async ({ which, student }) => {
@@ -41,6 +41,52 @@
       const macro = method ? endVia?.[method] : end;
       if (!macro) return { ok: false, reason: "no-end-macro" };
       return HPH.runMacro(macro, { student });
+    },
+    // Read-only check of whether tracked students are currently Active, Waiting for Approval, or gone from My passes.
+    "read-passes": async ({ passes = [] } = {}) => {
+      if (HPH.busy || teaching()) return { ok: false, reason: "busy" };
+      const snap = HPH.readMyPasses?.();
+      if (!snap?.supported) return { ok: true, supported: false, requestsCollapsed: false, filtered: false, states: {} };
+      const states = {};
+      for (const p of passes) {
+        const matches = snap.cards.filter((c) => HPH.nameMatches(c.text, p.student));
+        const active = matches.find((c) => c.status === "active");
+        const waiting = matches.find((c) => c.status === "waiting");
+        states[p.id] = active ? "active" : waiting ? "waiting" : "missing";
+      }
+      const details = HPH.readPassDetails?.();
+      const passDetails = details
+        ? {
+            open: true,
+            status: details.status,
+            hasBlockers: details.hasBlockers,
+            hardBlockers: details.hardBlockers,
+            autoBlockers: details.autoBlockers,
+            etaText: details.etaText,
+            canOverride: details.canOverride,
+            canReject: details.canReject,
+            canEnd: details.canEnd,
+          }
+        : null;
+      return {
+        ok: true,
+        supported: true,
+        requestsCollapsed: snap.requestsCollapsed,
+        filtered: snap.filtered,
+        states,
+        passDetails,
+      };
+    },
+    // Cancels/rejects a pass that is sitting in GoGuardian's "Waiting for Approval" queue.
+    "cancel-waiting": async ({ student }) => {
+      if (teaching()) return { ok: false, reason: "teaching" };
+      if (HPH.busy) return { ok: false, reason: "busy" };
+      HPH.busy = true;
+      try {
+        return await HPH.rejectWaitingPass(student);
+      } finally {
+        HPH.busy = false;
+      }
     },
     outline: async () => {
       const s = await chrome.storage.local.get({

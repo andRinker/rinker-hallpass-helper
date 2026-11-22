@@ -761,6 +761,346 @@ try {
   await sw.evaluate(() => chrome.storage.local.set({ outPasses: [] }));
   await ep.close();
 
+  // --- Phase 2 Real-DOM Blocker Fixtures (saved verbatim from real campus.goguardian.com captures, 0 PII) ---
+  const fxCapacityHtml = readFileSync(path.join(here, "fixtures", "campus-blocker-capacity.html"), "utf8");
+  const fxBothHtml = readFileSync(path.join(here, "fixtures", "campus-blocker-limit-and-capacity.html"), "utf8");
+  const fxActiveHtml = readFileSync(path.join(here, "fixtures", "campus-active-passes.html"), "utf8");
+  await ctx.route("https://campus.goguardian.com/fx-capacity", (r) => r.fulfill({ contentType: "text/html; charset=utf-8", body: fxCapacityHtml }));
+  await ctx.route("https://campus.goguardian.com/fx-both", (r) => r.fulfill({ contentType: "text/html; charset=utf-8", body: fxBothHtml }));
+  await ctx.route("https://campus.goguardian.com/fx-active", (r) => r.fulfill({ contentType: "text/html; charset=utf-8", body: fxActiveHtml }));
+
+  const fxp = await ctx.newPage();
+  watch(fxp, "real-blocker-fixtures");
+  await fxp.goto("https://campus.goguardian.com/fx-capacity");
+  await until(async () => {
+    const res = await sw.evaluate(async () => {
+      const [t] = await chrome.tabs.query({ url: "https://campus.goguardian.com/fx-capacity" });
+      return t ? chrome.tabs.sendMessage(t.id, { type: "ping" }).catch(() => null) : null;
+    });
+    return res?.ok;
+  }, "fx-capacity ready");
+  const capPasses = await sw.evaluate(async () => {
+    const [t] = await chrome.tabs.query({ url: "https://campus.goguardian.com/fx-capacity" });
+    return chrome.tabs.sendMessage(t.id, {
+      type: "read-passes",
+      passes: [
+        { id: "d", student: { first: "Student", last: "Delta" } },
+        { id: "h", student: { first: "Demo", last: "Hotel" } },
+        { id: "m", student: { first: "Student", last: "Missing" } },
+      ],
+    });
+  });
+  check(
+    capPasses?.ok &&
+      capPasses.supported &&
+      capPasses.states?.d === "waiting" &&
+      capPasses.states?.h === "active" &&
+      capPasses.states?.m === "missing" &&
+      capPasses.passDetails?.hasBlockers === true &&
+      capPasses.passDetails?.hardBlockers?.length === 0 &&
+      capPasses.passDetails?.autoBlockers?.length === 1 &&
+      capPasses.passDetails?.canReject === true,
+    "real campus capacity fixture: distinguishes waiting/active/missing cards and classifies capacity as auto-clearing only",
+    JSON.stringify(capPasses),
+  );
+
+  await fxp.goto("https://campus.goguardian.com/fx-both");
+  await until(async () => {
+    const res = await sw.evaluate(async () => {
+      const [t] = await chrome.tabs.query({ url: "https://campus.goguardian.com/fx-both" });
+      return t ? chrome.tabs.sendMessage(t.id, { type: "ping" }).catch(() => null) : null;
+    });
+    return res?.ok;
+  }, "fx-both ready");
+  const bothPasses = await sw.evaluate(async () => {
+    const [t] = await chrome.tabs.query({ url: "https://campus.goguardian.com/fx-both" });
+    return chrome.tabs.sendMessage(t.id, { type: "read-passes", passes: [] });
+  });
+  check(
+    bothPasses?.ok &&
+      bothPasses.passDetails?.hasBlockers === true &&
+      bothPasses.passDetails?.hardBlockers?.some((b) => /pass limit/i.test(b)) &&
+      bothPasses.passDetails?.autoBlockers?.some((b) => /capacity/i.test(b)),
+    "real campus limit+capacity fixture: separates pass-limit (hard blocker) from room-capacity (auto-clearing)",
+    JSON.stringify(bothPasses?.passDetails),
+  );
+
+  await fxp.goto("https://campus.goguardian.com/fx-active");
+  await until(async () => {
+    const res = await sw.evaluate(async () => {
+      const [t] = await chrome.tabs.query({ url: "https://campus.goguardian.com/fx-active" });
+      return t ? chrome.tabs.sendMessage(t.id, { type: "ping" }).catch(() => null) : null;
+    });
+    return res?.ok;
+  }, "fx-active ready");
+  const actPasses = await sw.evaluate(async () => {
+    const [t] = await chrome.tabs.query({ url: "https://campus.goguardian.com/fx-active" });
+    return chrome.tabs.sendMessage(t.id, {
+      type: "read-passes",
+      passes: [{ id: "d", student: { first: "Student", last: "Delta" } }],
+    });
+  });
+  check(
+    actPasses?.ok && actPasses.supported && actPasses.states?.d === "active" && actPasses.passDetails?.status === "active" && !actPasses.passDetails?.hasBlockers,
+    "real campus post-override fixture: Student Delta promoted to active under Active passes with zero blockers",
+    JSON.stringify(actPasses),
+  );
+  await fxp.close();
+
+  // --- Phase 2 Full Interactive Contingency Engine E2E (using real BUILTIN_MACROS + real GoGuardian blocker shapes) ---
+  const contingencyHtml = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Mock Real Blockers</title>
+  <style>
+    button { display: inline-flex; padding: 4px 10px; margin: 2px; border: 1px solid #888; }
+    [role="dialog"] { border: 2px solid #444; padding: 12px; margin: 10px 0; }
+    [role="option"] { display: block; padding: 4px 8px; }
+  </style></head><body>
+    <button id="newPass" type="button" class="inline-flex items-center justify-center whitespace-nowrap">New Pass</button>
+    <div id="waitingWrap"></div>
+    <div class="flex flex-col gap-4">
+      <h3 class="text-lg font-bold">Active passes</h3>
+      <div id="activeGrid" class="grid grid-cols-1 gap-4"></div>
+    </div>
+    <div id="modalHost"></div>
+    <script>
+      const STUDENTS = ["Jordan Miller", "Ava Lee", "Sam Cho"];
+      const DESTS = ["6th Grade Bathroom", "Nurse"];
+      const BTN = "inline-flex items-center justify-center whitespace-nowrap";
+      const state = (window.__ct = { active: [], waiting: [], rejected: [], mode: { "Jordan Miller": "limit-and-capacity", "Ava Lee": "capacity", "Sam Cho": "active" } });
+      const $ = (s, r = document) => r.querySelector(s);
+
+      function render() {
+        const ww = $("#waitingWrap");
+        if (state.waiting.length) {
+          ww.innerHTML = '<div class="flex flex-col gap-4"><h3><span>' + state.waiting.length + '</span> Pass waiting for approval</h3><button type="button">Hide requests</button><div id="waitGrid" class="grid grid-cols-1 gap-4"></div></div>';
+          const wg = $("#waitGrid");
+          for (const p of state.waiting) {
+            const card = document.createElement("div");
+            card.className = "relative w-full overflow-visible";
+            card.innerHTML = '<button type="button"><span>' + p.student + '</span> <span>' + p.dest + '</span> <span>Waiting for Approval</span></button>'
+              + '<div><button type="button" class="' + BTN + ' show-b">Show Blockers</button><button type="button" class="' + BTN + ' rej">Reject</button></div>';
+            card.querySelector(".rej").onclick = () => {
+              state.waiting = state.waiting.filter((x) => x !== p);
+              state.rejected.push(p.student);
+              render();
+            };
+            wg.append(card);
+          }
+        } else {
+          ww.innerHTML = "";
+        }
+        const ag = $("#activeGrid");
+        ag.innerHTML = "";
+        if (!state.active.length) {
+          ag.innerHTML = "<h3>No active passes</h3>";
+        } else {
+          for (const p of state.active) {
+            const card = document.createElement("div");
+            card.className = "relative w-full overflow-visible";
+            card.innerHTML = '<button type="button"><span>' + p.student + '</span> <span>' + p.dest + '</span> <span>Active (05:00)</span></button>'
+              + '<div><button type="button" class="' + BTN + ' end">End Pass</button></div>';
+            card.querySelector(".end").onclick = () => {
+              state.active = state.active.filter((x) => x !== p);
+              render();
+            };
+            ag.append(card);
+          }
+        }
+      }
+      window.__promoteWaiting = (student) => {
+        const idx = state.waiting.findIndex((p) => p.student === student);
+        if (idx >= 0) {
+          const [p] = state.waiting.splice(idx, 1);
+          state.active.push(p);
+          render();
+        }
+      };
+      window.__manualEnd = (student) => {
+        state.active = state.active.filter((p) => p.student !== student);
+        render();
+      };
+
+      function dropdown(root, placeholder, items, onPick) {
+        const wrap = document.createElement("div");
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.setAttribute("role", "combobox");
+        btn.className = "inline-flex items-center whitespace-nowrap rounded-md";
+        btn.textContent = placeholder;
+        wrap.append(btn);
+        btn.onclick = () => {
+          if (wrap.querySelector(".pop")) return;
+          const pop = document.createElement("div");
+          pop.className = "pop";
+          pop.innerHTML = '<input class="flex w-full rounded-md bg-transparent" type="text" role="combobox" aria-label="' + placeholder + '" /><div role="listbox"></div>';
+          wrap.append(pop);
+          const inp = pop.querySelector("input");
+          const lb = pop.querySelector("[role=listbox]");
+          const draw = () => {
+            const q = inp.value.trim().toLowerCase();
+            lb.innerHTML = "";
+            for (const item of items.filter((i) => !q || i.toLowerCase().includes(q))) {
+              const o = document.createElement("div");
+              o.setAttribute("role", "option");
+              o.className = "relative flex cursor-default select-none";
+              o.textContent = item;
+              o.onclick = () => { btn.textContent = item; pop.remove(); onPick(item); };
+              lb.append(o);
+            }
+          };
+          inp.oninput = draw;
+          draw();
+          inp.focus();
+        };
+        root.append(wrap);
+      }
+
+      function openPassDetails(pass, kind) {
+        const host = $("#modalHost");
+        if (kind === "active") {
+          host.innerHTML = '<div role="dialog" aria-modal="true" aria-labelledby="pd-h"><h2 id="pd-h" class="sr-only">Pass Details</h2>'
+            + '<h2><button type="button" aria-haspopup="dialog">' + pass.student + '</button></h2>'
+            + '<div>' + pass.dest + ' · Active</div>'
+            + '<button type="submit" class="' + BTN + ' end">End Pass</button>'
+            + '<button type="button" class="' + BTN + ' cls"><span class="sr-only">Close</span></button></div>';
+          host.querySelector(".cls").onclick = () => (host.innerHTML = "");
+          return;
+        }
+        const limitFs = kind === "limit-and-capacity"
+          ? '<fieldset aria-describedby="d-hard"><legend>Requires your action</legend><p id="d-hard">These won\\'t clear automatically.</p><ul><li><label>Student has reached the pass limit</label></li></ul></fieldset>'
+          : "";
+        const capFs = '<fieldset aria-describedby="d-auto"><legend>Will clear automatically</legend><p id="d-auto">These will resolve at the time shown. Select to override now.</p><ul><li><label>Destination room is at capacity</label><button type="button"><span>&lt; 5m</span></button></li></ul></fieldset>';
+        host.innerHTML = '<div role="dialog" aria-modal="true" aria-labelledby="pd-h"><h2 id="pd-h" class="sr-only">Pass Details</h2>'
+          + '<h2><button type="button" aria-haspopup="dialog">' + pass.student + '</button></h2>'
+          + '<div>' + pass.dest + ' · Waiting for Approval</div>'
+          + '<form><section><h3>Pass has blockers</h3>' + limitFs + capFs + '</section>'
+          + '<button type="submit" disabled class="' + BTN + '">Override Blockers</button>'
+          + '<button type="button" class="' + BTN + ' rej">Reject Pass</button></form>'
+          + '<button type="button" class="' + BTN + ' cls"><span class="sr-only">Close</span></button></div>';
+        host.querySelector(".rej").onclick = () => {
+          state.waiting = state.waiting.filter((x) => x !== pass);
+          state.rejected.push(pass.student);
+          host.innerHTML = "";
+          render();
+        };
+        host.querySelector(".cls").onclick = () => (host.innerHTML = "");
+      }
+
+      $("#newPass").onclick = () => {
+        const host = $("#modalHost");
+        host.innerHTML = '<div role="dialog" aria-modal="true" aria-labelledby="rp-h"><h2 id="rp-h">Request Pass</h2><div class="stu"></div><div class="dst"></div><button type="submit" class="' + BTN + ' sub">Submit</button><button type="button" class="' + BTN + ' cls"><span class="sr-only">Close</span></button></div>';
+        const form = { student: null, dest: null };
+        dropdown(host.querySelector(".stu"), "Select student", STUDENTS, (v) => (form.student = v));
+        dropdown(host.querySelector(".dst"), "Select destination room", DESTS, (v) => (form.dest = v));
+        host.querySelector(".cls").onclick = () => (host.innerHTML = "");
+        host.querySelector(".sub").onclick = () => {
+          if (!form.student || !form.dest) return;
+          const kind = state.mode[form.student] || "active";
+          const pass = { student: form.student, dest: form.dest };
+          if (kind === "active") state.active.push(pass);
+          else state.waiting.push(pass);
+          render();
+          openPassDetails(pass, kind);
+        };
+      };
+      render();
+    </script>
+  </body></html>`;
+
+  await ctx.route("https://campus.goguardian.com/contingency-test", (r) =>
+    r.fulfill({ contentType: "text/html; charset=utf-8", body: contingencyHtml }),
+  );
+  const cp = await ctx.newPage();
+  watch(cp, "contingency");
+  await cp.goto("https://campus.goguardian.com/contingency-test");
+  await cp.bringToFront();
+  await until(async () => {
+    const res = await sw.evaluate(async () => {
+      const [t] = await chrome.tabs.query({ url: "https://campus.goguardian.com/contingency-test" });
+      return t ? chrome.tabs.sendMessage(t.id, { type: "ping" }).catch(() => null) : null;
+    });
+    return res?.ok;
+  }, "contingency page ready");
+
+  // Reset queue/outPasses/skipped and queue Jordan Miller (hard limit+capacity blocker) + Ava Lee (capacity-only blocker).
+  await sw.evaluate(() =>
+    chrome.storage.local.set({ queue: [], outPasses: [], skippedPasses: [], queuePaused: false, queueProblem: "", lane: "hallpass", fallback: false, maxOut: 1 }),
+  );
+  await panel.click('#destinations button:text("6th Grade Bathroom")');
+  await panel.fill("#addName", "jordan mi");
+  await panel.press("#addName", "Enter");
+  await panel.fill("#addName", "ava lee");
+  await panel.press("#addName", "Enter");
+
+  // 1) Jordan hits daily limit -> auto-rejected in HallPass, put in Skipped box, queue NOT paused, Ava sent automatically -> lands in Waiting!
+  await until(async () => {
+    const s = await storage(["skippedPasses", "outPasses", "queuePaused"]);
+    return s.skippedPasses?.length === 1 && s.outPasses?.length === 1 && s.outPasses[0].status === "waiting";
+  }, "Jordan skipped on daily limit and Ava left in destination-full waitline", 25000);
+  const afterBlockers = await storage(["skippedPasses", "outPasses", "queuePaused", "queue"]);
+  const rejectedInDom = await cp.evaluate(() => window.__ct.rejected);
+  const alarmsWhileWaiting = await sw.evaluate(() => chrome.alarms.getAll());
+  check(
+    afterBlockers.queuePaused === false &&
+      afterBlockers.skippedPasses[0].label === "Jordan Mi." &&
+      afterBlockers.skippedPasses[0].blockers.some((b) => /pass limit/i.test(b)) &&
+      rejectedInDom.includes("Jordan Miller") &&
+      (await panel.locator("#skippedBox").isVisible()),
+    "contingency (daily limit): auto-rejects blocked request, flags Jordan in Skipped box, and advances queue without pausing",
+    JSON.stringify({ paused: afterBlockers.queuePaused, skipped: afterBlockers.skippedPasses, rejectedInDom }),
+  );
+  check(
+    afterBlockers.outPasses[0].label === "Ava L." &&
+      afterBlockers.outPasses[0].status === "waiting" &&
+      afterBlockers.outPasses[0].startedAt === null &&
+      !alarmsWhileWaiting.some((a) => a.name === `end:${afterBlockers.outPasses[0].id}`) &&
+      (await panel.locator("#outList .out-row.waiting").isVisible()) &&
+      /timer held/.test((await panelText("#outList")) ?? ""),
+    "contingency (destination full): leaves Ava in GoGuardian waitline, shows Waiting badge + Cancel, and holds 7-min timer",
+    JSON.stringify({ out: afterBlockers.outPasses, alarms: alarmsWhileWaiting.map((a) => a.name) }),
+  );
+
+  // 2) Simulate GoGuardian opening a bathroom spot (Waiting -> Active) -> timer automatically starts!
+  await cp.evaluate(() => window.__promoteWaiting("Ava Lee"));
+  await until(async () => {
+    const s = await storage("outPasses");
+    return s.outPasses?.[0]?.status === "active" && typeof s.outPasses[0].startedAt === "number";
+  }, "Ava promoted from waiting to active with timer started", 15000);
+  const alarmsAfterActive = await sw.evaluate(() => chrome.alarms.getAll());
+  const promotedPass = (await storage("outPasses")).outPasses[0];
+  check(
+    promotedPass.status === "active" &&
+      alarmsAfterActive.some((a) => a.name === `end:${promotedPass.id}`),
+    "contingency (waitline promotion): moving from Waiting to Active starts 7-minute timer and arms end alarm automatically",
+    JSON.stringify({ promotedPass, alarms: alarmsAfterActive.map((a) => a.name) }),
+  );
+
+  // 3) Queue Sam Cho behind Ava, backdate Ava past 12s grace period, and manually end Ava directly in GoGuardian -> Sam goes automatically!
+  await panel.fill("#addName", "sam cho");
+  await panel.press("#addName", "Enter");
+  await until(async () => (await storage("queue")).queue?.length === 1, "Sam queued behind Ava");
+  await sw.evaluate(async () => {
+    const { outPasses } = await chrome.storage.local.get("outPasses");
+    await chrome.storage.local.set({ outPasses: outPasses.map((p) => ({ ...p, startedAt: Date.now() - 30000 })) });
+  });
+  await cp.evaluate(() => window.__manualEnd("Ava Lee"));
+  await until(async () => {
+    const s = await storage("outPasses");
+    return s.outPasses?.length === 1 && s.outPasses[0].label === "Sam C." && s.outPasses[0].status === "active";
+  }, "Ava manually ended in HallPass -> auto-cleared and Sam Cho sent next", 20000);
+  check(true, "contingency (manual end): detects pass ended directly in HallPass, clears Out now, and sends next student");
+
+  // 4) Retry button on Skipped Jordan puts Jordan back in queue!
+  await panel.locator('#skippedList button:text("Retry")').click();
+  await until(async () => {
+    const s = await storage(["queue", "skippedPasses"]);
+    return s.skippedPasses?.length === 0 && s.queue?.some((e) => e.label === "Jordan Mi.");
+  }, "Retry button moves skipped student back to queue", 8000);
+  check(true, "contingency (retry): Retry button puts skipped student back into the queue cleanly");
+
+  await sw.evaluate(() => chrome.storage.local.set({ queue: [], outPasses: [], skippedPasses: [], queuePaused: false, queueProblem: "" }));
+  await cp.close();
+  await panel.click('#destinations button:text("Nurse")');
+
   await setMacros(fixture);
   await bp.close();
 

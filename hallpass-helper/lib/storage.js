@@ -32,8 +32,10 @@ export const DEFAULTS = {
   queuePaused: false,
   // Why the queue stopped, shown in the side panel until it's resumed.
   queueProblem: "",
-  // Passes the helper made that haven't ended: [{ id, student, label, destination, startedAt, endFailed? }]
+  // Passes the helper made that haven't ended: [{ id, student, label, destination, lane?, status?, startedAt, queuedInHallPassAt?, blockerLabel?, etaText?, endFailed? }]
   outPasses: [],
+  // Students automatically skipped because of a hard HallPass blocker (e.g. daily pass limit): [{ id, student, label, destination, blockers, at }]
+  skippedPasses: [],
 };
 
 export function loadSettings() {

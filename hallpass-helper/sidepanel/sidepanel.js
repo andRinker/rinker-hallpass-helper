@@ -1,5 +1,5 @@
 import { HALLPASS_URL, loadSettings, saveSettings } from "../lib/storage.js";
-import { alreadyListed, queueEntry, studentFromText, suggestions } from "../lib/queue.js";
+import { alreadyListed, isWaitingPass, queueEntry, studentFromText, suggestions } from "../lib/queue.js";
 import { capitalize } from "../lib/tabs.js";
 import { METHODS, SEND_ORDER, chosenLane, endMethods, makeMethods, method, methodPlace, openerPlace } from "../lib/methods.js";
 import { $, hallpassTab, h, toast } from "./shared.js";
@@ -20,6 +20,7 @@ async function refresh() {
   renderDestinations();
   renderSuggestions();
   renderQueue();
+  renderSkipped();
   renderWatch();
   renderWhosOut();
   renderLastRun();
@@ -89,7 +90,11 @@ function queueStatus() {
   if (!queue.length) return { text: `Add students and the helper sends them to HallPass ${pace}.` };
   if (outPasses.length < maxOut) return { text: `Sending ${queue[0].label}…` };
   const waitingOn =
-    maxOut === 1 ? `${outPasses[0].label} is back or their ${autoEndMinutes} minutes are up` : "a spot opens";
+    maxOut === 1
+      ? isWaitingPass(outPasses[0])
+        ? `${outPasses[0].label}'s waiting pass finishes`
+        : `${outPasses[0].label} is back or their ${autoEndMinutes} minutes are up`
+      : "a spot opens";
   return { text: `${queue[0].label} goes next, when ${waitingOn}.` };
 }
 
@@ -148,6 +153,59 @@ function renderQueue() {
   );
 }
 
+async function retrySkipped(item) {
+  const latest = await loadSettings();
+  const nextSkipped = (latest.skippedPasses ?? []).filter((x) => x.id !== item.id);
+  const where = alreadyListed(latest, item.student);
+  if (where) {
+    await saveSettings({ skippedPasses: nextSkipped });
+    toast(where === "queue" ? `${item.label} is already in the queue.` : `${item.label} is already out.`);
+    return;
+  }
+  const entry = queueEntry({ student: item.student, label: item.label, destination: item.destination });
+  await saveSettings({ skippedPasses: nextSkipped, queue: [entry, ...latest.queue] });
+  toast(`Retrying ${item.label}.`);
+}
+
+async function dismissSkipped(id) {
+  const latest = await loadSettings();
+  await saveSettings({ skippedPasses: (latest.skippedPasses ?? []).filter((x) => x.id !== id) });
+}
+
+function renderSkipped() {
+  const list = settings.skippedPasses ?? [];
+  $("skippedBox").hidden = !list.length;
+  $("skippedList").replaceChildren(
+    ...list.map((item) => {
+      const reason = (item.blockers ?? []).join("; ") || "Blocked by HallPass";
+      return h(
+        "li",
+        { class: "skipped-row" },
+        h(
+          "div",
+          { class: "who" },
+          h("strong", {}, item.label),
+          h("span", { class: "skipped-reason" }, item.destination ? `${item.destination} · ${reason}` : reason),
+        ),
+        h("button", { type: "button", onclick: () => retrySkipped(item) }, "Retry"),
+        h(
+          "button",
+          {
+            class: "link remove",
+            type: "button",
+            title: "Dismiss",
+            "aria-label": `Dismiss ${item.label}`,
+            onclick: () => dismissSkipped(item.id),
+          },
+          "×",
+        ),
+      );
+    }),
+  );
+}
+
+$("clearSkipped").addEventListener("click", () => saveSettings({ skippedPasses: [] }));
+
 // What the helper did the last time it made or ended a pass: which way it used and what it skipped or cleared.
 function renderLastRun() {
   const run = settings.lastRun;
@@ -155,7 +213,11 @@ function renderLastRun() {
   if (!run) return;
   const what = run.goal === "make" ? "making a pass" : "ending a pass";
   const minutes = Math.max(0, Math.round((Date.now() - run.at) / 60000));
-  const result = run.ok ? "worked" : `stuck at step ${run.step ?? "?"}${run.label ? ` (${run.label})` : ""}`;
+  const result = run.ok
+    ? "worked"
+    : run.reason === "blocked-hard"
+      ? "skipped (blocked by HallPass)"
+      : `stuck at step ${run.step ?? "?"}${run.label ? ` (${run.label})` : ""}`;
   $("lastRunSummary").textContent = `Last try, ${what}: ${result}${run.routes > 1 ? `, way ${run.route} of ${run.routes}` : ""}, ${minutes < 1 ? "just now" : `${minutes} min ago`}`;
   $("lastRunNotes").replaceChildren(...(run.notes?.length ? run.notes : ["Nothing needed skipping or clearing."]).map((n) => h("li", {}, n)));
 }
