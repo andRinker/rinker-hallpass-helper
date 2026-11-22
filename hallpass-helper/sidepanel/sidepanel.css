@@ -420,3 +420,76 @@ header h1 {
 .lane .hint {
   margin: 2px 0 0;
 }
+
+.tools-list {
+  display: grid;
+  gap: 6px;
+  justify-items: start;
+}
+
+.tool-box {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+}
+
+.tool-box select {
+  margin-bottom: 8px;
+}
+
+.tool-actions {
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.audit-banner {
+  margin: 0 0 6px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  border: 1px solid var(--line);
+}
+
+.audit-banner[data-clean="yes"] {
+  color: var(--ok);
+  border-color: color-mix(in srgb, var(--ok) 45%, var(--line));
+}
+
+.audit-banner[data-clean="no"] {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 55%, var(--line));
+}
+
+.word-audit-details {
+  margin-top: 8px;
+  font-size: 12.5px;
+}
+
+.word-audit-details summary {
+  cursor: pointer;
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.word-audit {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+  max-height: 140px;
+  overflow-y: auto;
+}
+
+.word-pill {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+}
+

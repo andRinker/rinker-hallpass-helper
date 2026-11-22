@@ -44,10 +44,13 @@
       ],
       "js": [
         "content/core.js",
+        "content/scrub.js",
         "content/describe.js",
         "content/watch.js",
         "content/replay.js",
         "content/outline.js",
+        "content/snapshot.js",
+        "content/diagnose.js",
         "content/hallpass.js"
       ],
       "run_at": "document_idle"

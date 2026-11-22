@@ -50,14 +50,48 @@
     </section>
 
     <section class="tools">
-      <button id="outlineButton" class="link" type="button">Copy outline of open GoGuardian pages</button>
-      <div id="outlineBox" hidden>
+      <div class="tools-list">
+        <button id="diagnoseButton" class="link" type="button">Run read-only self-check (dry run)</button>
+        <button id="snapshotButton" class="link" type="button">Capture scrubbed DOM snapshot</button>
+        <button id="outlineButton" class="link" type="button">Copy outline of open GoGuardian pages</button>
+      </div>
+
+      <div id="diagnoseBox" class="tool-box" hidden>
+        <p id="diagnoseBadge" class="audit-banner"></p>
+        <textarea id="diagnoseText" rows="12" readonly aria-label="Read-only self-check report"></textarea>
+        <div class="row tool-actions">
+          <button id="copyDiagnose" class="primary" type="button">Copy report</button>
+          <button id="closeDiagnose" type="button">Close</button>
+        </div>
+      </div>
+
+      <div id="snapshotBox" class="tool-box" hidden>
+        <select id="snapshotPicker" aria-label="Choose captured page" hidden></select>
+        <p id="snapshotStatus" class="audit-banner"></p>
+        <p id="snapshotStats" class="hint"></p>
+        <details id="snapshotWordsDetails" class="word-audit-details">
+          <summary id="snapshotWordsSummary"></summary>
+          <div id="snapshotWords" class="word-audit"></div>
+        </details>
+        <details class="word-audit-details">
+          <summary>View raw scrubbed HTML</summary>
+          <textarea id="snapshotHtml" rows="8" readonly aria-label="Scrubbed DOM snapshot HTML"></textarea>
+        </details>
+        <div class="row tool-actions">
+          <button id="previewSnapshot" type="button">Preview in tab</button>
+          <button id="downloadSnapshot" class="primary" type="button">Download .html</button>
+          <button id="copySnapshot" type="button">Copy HTML</button>
+          <button id="closeSnapshot" type="button">Close</button>
+        </div>
+      </div>
+
+      <div id="outlineBox" class="tool-box" hidden>
         <p id="outlineHint" class="hint">
           Student and staff names show up as "Xxxxx". Look it over before you send it, then paste it into an email or doc
           to yourself.
         </p>
         <textarea id="outlineText" rows="12" readonly aria-label="Page outline"></textarea>
-        <div class="row">
+        <div class="row tool-actions">
           <button id="copyOutline" class="primary" type="button">Copy</button>
           <button id="closeOutline" type="button">Close</button>
         </div>

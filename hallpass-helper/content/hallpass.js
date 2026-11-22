@@ -55,6 +55,48 @@
       const keep = [s.school, s.teacherName, s.origin, ...s.destinations];
       return { ok: true, text: HPH.pageOutline({ keep, roster: s.roster, macros: s.macros, lastRun: s.lastRun }) };
     },
+    snapshot: async ({ isPopup = false } = {}) => {
+      const s = await chrome.storage.local.get({
+        school: "",
+        teacherName: "",
+        origin: "",
+        roster: [],
+      });
+      const forbidden = [
+        { value: s.school, replacement: "Sample School" },
+        { value: s.teacherName, replacement: "Sample Teacher" },
+        { value: s.origin, replacement: "Room 101" },
+      ];
+      return HPH.captureSnapshot({ roster: s.roster, forbidden, isPopup });
+    },
+    diagnose: async ({ isPopup = false } = {}) => {
+      const s = await chrome.storage.local.get({
+        school: "",
+        teacherName: "",
+        origin: "",
+        destinations: [],
+        roster: [],
+        macros: {},
+        lane: "",
+        outPasses: [],
+        queue: [],
+      });
+      const forbidden = [
+        { value: s.school, replacement: "Sample School" },
+        { value: s.teacherName, replacement: "Sample Teacher" },
+        { value: s.origin, replacement: "Room 101" },
+      ];
+      return HPH.diagnosePage({
+        macros: s.macros,
+        lane: s.lane,
+        roster: s.roster,
+        forbidden,
+        outPasses: s.outPasses,
+        queue: s.queue,
+        destinations: s.destinations,
+        isPopup,
+      });
+    },
   };
 
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {

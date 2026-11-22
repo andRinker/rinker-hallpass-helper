@@ -1,12 +1,13 @@
 import { HALLPASS_URL, loadSettings, saveSettings } from "../lib/storage.js";
 import { alreadyListed, queueEntry, studentFromText, suggestions } from "../lib/queue.js";
-import { allGoGuardianTabs, capitalize, hostOf } from "../lib/tabs.js";
+import { capitalize } from "../lib/tabs.js";
 import { METHODS, SEND_ORDER, chosenLane, endMethods, makeMethods, method, methodPlace, openerPlace } from "../lib/methods.js";
-import { $, askHallPass, hallpassTab, h, toast } from "./shared.js";
+import { $, hallpassTab, h, toast } from "./shared.js";
 import { installBuiltin } from "../lib/builtin.js";
 import { renderGuide } from "./guide.js";
 import { initWatch, renderWatch } from "./watch.js";
 import { initWhosOut, renderWhosOut } from "./whos-out.js";
+import { initTools } from "./tools.js";
 
 $("version").textContent = chrome.runtime.getManifest().version_name ?? chrome.runtime.getManifest().version;
 
@@ -232,29 +233,6 @@ async function renderHallPass() {
   renderGuide(settings, $("teach").dataset.mode === "watching");
 }
 
-// Outlines every open GoGuardian tab, pop-up windows included. A pop-up (like the Create Pass window)
-// has no side panel of its own, so open it, then click the button here in the main window.
-async function showOutline() {
-  const tabs = await allGoGuardianTabs();
-  const parts = [];
-  for (const tab of tabs) {
-    const result = await chrome.tabs.sendMessage(tab.id, { type: "outline" }).catch(() => null);
-    const win = await chrome.windows.get(tab.windowId).catch(() => null);
-    const kind = win?.type === "popup" ? "pop-up window" : "browser window";
-    parts.push({ head: `${hostOf(tab.url)} (${kind}${tab.active ? ", showing" : ", in the background"})`, text: result?.ok ? result.text : null });
-  }
-  if (!parts.some((p) => p.text)) {
-    toast(tabs.length ? "Reload your GoGuardian tabs first." : "Open HallPass first.");
-    return;
-  }
-  const text =
-    parts.length === 1
-      ? parts[0].text
-      : parts.map((p, i) => `===== Page ${i + 1} of ${parts.length}: ${p.head} =====\n${p.text ?? "(the helper can't read this page. Reload it.)"}`).join("\n\n");
-  $("outlineText").value = text;
-  $("outlineBox").hidden = false;
-}
-
 $("settings").addEventListener("click", () => chrome.runtime.openOptionsPage());
 // Reloads or opens the same site the status line is talking about: the one the steps were taught on.
 $("openHallpass").addEventListener("click", async () => {
@@ -266,13 +244,6 @@ $("openHallpass").addEventListener("click", async () => {
     const host = page?.kind === "create" ? page.openerHost : page?.place.host;
     chrome.tabs.create({ url: host ? `https://${host}/` : HALLPASS_URL, pinned: true });
   }
-});
-$("outlineButton").addEventListener("click", showOutline);
-
-$("closeOutline").addEventListener("click", () => ($("outlineBox").hidden = true));
-$("copyOutline").addEventListener("click", async () => {
-  await navigator.clipboard.writeText($("outlineText").value);
-  toast("Copied. Paste it into your chat with Claude.");
 });
 
 chrome.storage.onChanged.addListener(refresh);
@@ -288,4 +259,5 @@ settings = await loadSettings();
 const getSettings = () => settings;
 initWhosOut(getSettings);
 initWatch(getSettings);
+initTools();
 refresh();

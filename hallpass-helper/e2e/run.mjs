@@ -520,6 +520,102 @@ try {
   r = await bEnd();
   check(r?.ok && (await bState()) === "Jordan Miller:Library", "built-in end: another student's pass box is open, so theirs isn't ended by mistake", JSON.stringify(r));
   check(!(await bp.evaluate(() => window.__mock.log.join())).includes("ended Jordan"), "built-in end: the other student's pass was left alone");
+  // Read-only self-check (dry run) and scrubbed DOM snapshot exporter against the built-in mock page.
+  await bReset([["Jordan Miller", "Library"], ["Ava Lee", "Nurse"]]);
+  await bp.click("#list li:nth-child(2) button");
+  // Inject a fake student avatar image and a hidden PII node to prove the snapshot strips both.
+  await bp.evaluate(() => {
+    const img = document.createElement("img");
+    img.src = "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20' data-user='jordan-miller-99182'></svg>";
+    img.alt = "Jordan Miller photo";
+    document.body.append(img);
+    const hidden = document.createElement("div");
+    hidden.style.display = "none";
+    hidden.textContent = "Secret Hidden Student Marcus Vance secret@school.edu";
+    document.body.append(hidden);
+    const status = document.createElement("span");
+    status.textContent = "Waiting in queue";
+    document.body.append(status);
+  });
+  const logBefore = await bp.evaluate(() => JSON.stringify(window.__mock.log));
+  const passesBefore = await bState();
+
+  // Feature #2: Read-only self-check (dry run) from the side panel.
+  await panel.click("#diagnoseButton");
+  await panel.locator("#diagnoseBox").waitFor({ state: "visible" });
+  const diagBadge = await panel.locator("#diagnoseBadge").textContent();
+  const diagText = await panel.locator("#diagnoseText").inputValue();
+  check(
+    diagBadge.includes("Privacy check passed") && diagText.includes("Read-Only Self-Check") && diagText.includes("waiting("),
+    "dry-run self-check: reports screen state and status indicators with clean privacy check",
+    `${diagBadge}\n${diagText.slice(0, 300)}`,
+  );
+  check(
+    diagText.includes("READY (1 match)") && diagText.includes("[make via hallpass]"),
+    "dry-run self-check: evaluates built-in macro selectors read-only",
+    diagText.slice(0, 500),
+  );
+  check(
+    !/\b(Jordan|Miller|Ava|Lee|Rivera|Marcus|Vance)\b|Middle School South|secret@school\.edu/i.test(diagText),
+    "dry-run self-check: contains no student, teacher, school, or email data",
+    diagText,
+  );
+  check(
+    (await bp.evaluate(() => JSON.stringify(window.__mock.log))) === logBefore && (await bState()) === passesBefore,
+    "dry-run self-check: strictly read-only (nothing clicked or modified)",
+  );
+  await panel.click("#closeDiagnose");
+
+  // Feature #1: Scrubbed DOM snapshot + word audit from the side panel.
+  await panel.click("#snapshotButton");
+  await panel.locator("#snapshotBox").waitFor({ state: "visible" });
+  // Pick the campus.goguardian.com browser window (mock-builtin.html) when multiple tabs are open.
+  const pickerOpts = await panel.locator("#snapshotPicker option").allTextContents();
+  const builtinIdx = pickerOpts.findIndex((t) => t.includes("campus.goguardian.com (browser window"));
+  if (builtinIdx >= 0) await panel.selectOption("#snapshotPicker", String(builtinIdx));
+  const snapStatus = await panel.locator("#snapshotStatus").textContent();
+  const snapHtml = await panel.locator("#snapshotHtml").inputValue();
+  const auditWords = await panel.locator("#snapshotWords .word-pill").allTextContents();
+  check(
+    snapStatus.includes("Privacy check passed") && auditWords.includes("pass") && !auditWords.some((w) => /jordan|miller|ava|lee|marcus|vance/i.test(w)),
+    "scrubbed snapshot: privacy audit passes and word list contains only UI words",
+    `${snapStatus} | words=${auditWords.join(",")}`,
+  );
+  check(
+    !/\b(Jordan|Miller|Ava|Lee|Rivera|Marcus|Vance|99182)\b|Middle School South|secret@school\.edu|<script/i.test(snapHtml),
+    "scrubbed snapshot: strips scripts, avatars, hidden PII, and all student/school/teacher names",
+  );
+  check(
+    snapHtml.includes("New Pass") && snapHtml.includes("End Pass") && snapHtml.includes("Student Alpha"),
+    "scrubbed snapshot: preserves real DOM controls and maps students to synthetic Student Alpha/Bravo",
+  );
+  await panel.click("#closeSnapshot");
+
+  // Round-trip proof: load the exported scrubbed HTML snapshot back into Chromium and verify the extension diagnoses it cleanly.
+  await ctx.route("https://campus.goguardian.com/scrubbed-roundtrip", (route) =>
+    route.fulfill({ contentType: "text/html; charset=utf-8", body: snapHtml }),
+  );
+  const sp = await ctx.newPage();
+  watch(sp, "snapshot-roundtrip");
+  await sp.goto("https://campus.goguardian.com/scrubbed-roundtrip");
+  await until(async () => {
+    const res = await sw.evaluate(async () => {
+      const [t] = await chrome.tabs.query({ url: "https://campus.goguardian.com/scrubbed-roundtrip" });
+      return t ? chrome.tabs.sendMessage(t.id, { type: "ping" }).catch(() => null) : null;
+    });
+    return res?.ok;
+  }, "snapshot roundtrip content script ready");
+  const rtDiag = await sw.evaluate(async () => {
+    const [t] = await chrome.tabs.query({ url: "https://campus.goguardian.com/scrubbed-roundtrip" });
+    return chrome.tabs.sendMessage(t.id, { type: "diagnose", isPopup: false });
+  });
+  check(
+    rtDiag?.ok && rtDiag.audit?.clean && rtDiag.report.includes("READY (1 match)") && rtDiag.report.includes("Pass Details"),
+    "scrubbed snapshot round-trip: real extension loads and diagnoses the exported HTML cleanly in Chromium",
+    rtDiag?.report?.slice(0, 400),
+  );
+  await sp.close();
+
   await setMacros(fixture);
   await bp.close();
 

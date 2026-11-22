@@ -34,6 +34,8 @@ The helper already knows HallPass's screens. The steps for making and ending a p
 - **Destinations.** Bathroom, water and the rest are chosen by name from your Settings list, the same way you'd pick them in HallPass.
 - **HallPass has to stay open.** The helper works in your open HallPass tab. While it makes or ends a pass, it brings that tab forward for a moment and then switches back. To keep that out of sight (say, on a projector), give HallPass its own Chrome window.
 - **Name-free page outline.** If the helper gets stuck, use **Copy outline of open GoGuardian pages**. It produces a text outline of every open GoGuardian page with student and staff names turned into "Xxxxx". Look it over, then send it to yourself.
+- **Read-only self-check (dry run).** Click **Run read-only self-check (dry run)** in the side panel to check every built-in and learned selector, open dialog, and screen status indicator on your open GoGuardian pages without clicking or changing anything. The report is allowlist-scrubbed and checked for leaks before you copy it.
+- **Scrubbed DOM snapshot (for offline browser testing).** Click **Capture scrubbed DOM snapshot** to export a standalone HTML copy of an open GoGuardian page with all scripts, student avatar images, hidden nodes, URLs, emails, and non-UI text stripped locally in your browser. Real names are mapped to obvious synthetic placeholders (`Student Alpha`, `Demo Alpha`), and a **Privacy Audit** lists every single kept UI word so you can verify zero real names remain—plus **Preview in tab**, **Download .html**, and **Copy HTML**.
 
 ## At school: setting it up
 
@@ -62,9 +64,10 @@ Plain JavaScript, no build step.
 
 ```sh
 cd hallpass-helper
-npm test           # logic tests (Node)
-npm install        # once, for the browser test
-npm run test:e2e   # loads the extension in Chromium against e2e/mock-hallpass.html
+npm test                                    # logic tests (Node)
+npm install                                 # once, for the browser test
+npm run test:e2e                            # loads the extension in Chromium against e2e/mock-hallpass.html
+npm run test:snapshot -- path/to/snap.html  # loads an exported scrubbed snapshot in Chromium and runs the dry-run check
 ```
 
 `e2e/run.mjs` serves the mock page at `hallpass.goguardian.com` (and at `teacher.goguardian.com` as a stand-in home screen), then:
@@ -77,6 +80,8 @@ npm run test:e2e   # loads the extension in Chromium against e2e/mock-hallpass.h
 - Watch mode: shows the helper one way of ending a pass, checks the review, that no names are saved, that the new way works for another student, and that "copy what it learned" has no names
 - switches to the home screen → pop-up way and checks passes are made in the pop-up, not in the main HallPass tab, then switches back
 - checks that the outline has no names
+- runs the read-only self-check (dry run) and verifies selector matching with zero side effects and zero leaked names
+- captures a scrubbed DOM snapshot, checks the word audit and stripped scripts/avatars/hidden PII, and round-trips it in Chromium
 
 Set `E2E_SHOTS=/some/dir` to save screenshots.
 
@@ -87,15 +92,18 @@ Set `E2E_SHOTS=/some/dir` to save screenshots.
 | `lib/storage.js` | Saved settings and their defaults |
 | `lib/tabs.js` | Finds the GoGuardian tab to work in (HallPass, the home screen or the Create Pass window) |
 | `content/core.js` | Plain-data helpers: guessing step roles, removing names, matching names, the outline's name filter |
+| `content/scrub.js` | Strict allowlist scrubber, synthetic name mapping (`Student Alpha`/`Demo Alpha`), and zero-leak verifier |
 | `content/describe.js` | Describes an element so it can be found again after HallPass redraws |
 | `content/watch.js` | Watch mode, on the page: writes down clicks, what showed up after each, and which screens it saw |
 | `content/replay.js` | Runs the ways for a job: looks at the screen, skips what's done, clears pop-ups, tries the next way |
 | `content/outline.js` | The name-free page outline |
+| `content/snapshot.js` | Allowlist-scrubbed standalone HTML snapshot exporter with local privacy audit |
+| `content/diagnose.js` | Read-only dry-run self-check (evaluates selectors, open dialogs, and status words without clicking) |
 | `content/hallpass.js` | Answers the side panel and background inside HallPass or the home screen |
 | `background.js` | Sends the next student when a spot opens, ends passes on time, notices |
 | `lib/methods.js` | The two ways a pass is made, their directions, and which one the switch picked |
 | `lib/builtin.js` | The built-in steps for making and ending a pass, both ways (with what each screen looks like); installed on startup together with anything learned |
 | `lib/watch.js` | Watch mode logic: gathering, turning a demonstration into a way, folding it into what's known, the screen map, the report |
 | `lib/guide.js` | Works out the setup guide: which pages are seen and what to do next |
-| `sidepanel/` | Side panel: queue, way-to-make-passes switch, Watch card (`watch.js`), Out now, outline |
+| `sidepanel/` | Side panel: queue, way-to-make-passes switch, Watch card (`watch.js`), Out now, troubleshooting tools (`tools.js`) |
 | `options/` | Settings page |
