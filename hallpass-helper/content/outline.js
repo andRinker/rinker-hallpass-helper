@@ -76,34 +76,25 @@
     }
   }
 
-  function macroLines(macros, R, lastRun) {
+  function macroLines(macros, R) {
     const out = [];
     const taught = Object.entries(macros ?? {}).flatMap(([kind, macro]) =>
       kind === "make" || kind === "endVia"
         ? Object.entries(macro).map(([how, m]) => [`${kind === "make" ? "make" : "end"} via ${how}`, m])
-        : [],
+        : [[kind, macro]],
     );
     for (const [kind, macro] of taught) {
-      const routes = [macro.steps, ...(macro.alternates ?? []).map((a) => a.steps)];
-      routes.forEach((steps, w) => {
-        out.push(`Steps for "${kind}"${routes.length > 1 ? `, way ${w + 1} of ${routes.length}` : ""}:`);
-        steps.forEach((step, i) => {
-          const t = step.target;
-          const flags = [step.optional && "maybe", step.peek && "peek", step.commit && "ends it", step.done?.length && `skipped if ${step.done.length} thing(s) already showing`].filter(Boolean);
-          out.push(`  ${i + 1}. [${step.role}] ${R(HPH.stepLabel(step))}${flags.length ? ` (${flags.join(", ")})` : ""}`);
-          const bits = [`role=${t.role}`, `tag=${t.tag}`];
-          if (t.near) bits.push("near=student");
-          if (t.testid) bits.push(`testid=${R(t.testid)}`);
-          if (t.classes?.length) bits.push(`classes=${t.classes.map(R).join(".")}`);
-          if (t.context) bits.push(`context="${R(t.context)}"`);
-          if (t.pointer) bits.push("pointer");
-          out.push(`     ${bits.join(" ")}`);
-        });
+      out.push(`Taught "${kind}" steps:`);
+      macro.steps.forEach((step, i) => {
+        const t = step.target;
+        out.push(`  ${i + 1}. [${step.role}] ${R(HPH.stepLabel(step))}`);
+        const bits = [`role=${t.role}`, `tag=${t.tag}`];
+        if (t.testid) bits.push(`testid=${R(t.testid)}`);
+        if (t.classes?.length) bits.push(`classes=${t.classes.map(R).join(".")}`);
+        if (t.context) bits.push(`context="${R(t.context)}"`);
+        if (t.pointer) bits.push("pointer");
+        out.push(`     ${bits.join(" ")}`);
       });
-    }
-    if (lastRun) {
-      out.push(`Last try (${lastRun.goal}, ${lastRun.ok ? "worked" : `stuck at step ${lastRun.step}: ${R(lastRun.label ?? "")}`}):`);
-      for (const note of lastRun.notes ?? []) out.push(`  - ${R(note)}`);
     }
     return out;
   }
@@ -122,7 +113,7 @@
     return hosts.length ? [`Embedded frames: ${hosts.join(", ")}`] : [];
   }
 
-  HPH.pageOutline = ({ keep = [], roster = [], macros = {}, lastRun = null } = {}) => {
+  HPH.pageOutline = ({ keep = [], roster = [], macros = {} } = {}) => {
     const R = (text) => HPH.redact(text, { keep, roster });
     const out = [
       "HallPass Helper page outline (student and staff names are hidden)",
@@ -131,7 +122,7 @@
       `Page: ${R(location.pathname.replace(/\d+/g, "#"))}`,
       ...frameLines(),
       `Window: ${innerWidth}x${innerHeight}`,
-      ...macroLines(macros, R, lastRun),
+      ...macroLines(macros, R),
       "",
     ];
     const body = [];

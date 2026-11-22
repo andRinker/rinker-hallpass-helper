@@ -11,6 +11,4 @@
 
 If Chrome says **"Manifest file is missing or unreadable"**, you chose a folder above `hallpass-helper`. Go one level deeper.
 
-**Trying the tester version:** download <https://github.com/andRinker/rinker-hallpass-helper/archive/refs/heads/tester.zip> instead, remove the old HallPass Helper card on `chrome://extensions`, and use **Load unpacked** on its `hallpass-helper` folder. Its header says "tester".
-
 Setup after installing (your settings and which way you make passes) is in the [HallPass Helper README](hallpass-helper/README.md).
